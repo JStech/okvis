@@ -42,6 +42,7 @@
 
 #include <deque>
 #include <vector>
+#include <array>
 #include <memory>
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
@@ -166,6 +167,8 @@ struct CameraData {
   cv::Mat image;  ///< Image.
   std::vector<cv::KeyPoint> keypoints; ///< Keypoints if available.
   bool deliversKeypoints; ///< Are the keypoints delivered too?
+  bool hasROI; ///< Does the image have an associated ROI?
+  std::array<uint32_t, 4> roi; ///< The ROI.
 };
 /// \brief Keypoint measurement.
 struct KeypointData {

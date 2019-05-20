@@ -192,7 +192,9 @@ ThreadedKFVio::~ThreadedKFVio() {
 bool ThreadedKFVio::addImage(const okvis::Time & stamp, size_t cameraIndex,
                              const cv::Mat & image,
                              const std::vector<cv::KeyPoint> * keypoints,
-                             bool* /*asKeyframe*/) {
+                             bool* /*asKeyframe*/,
+                             bool has_roi,
+                             std::array<uint32_t, 4> roi) {
   assert(cameraIndex<numCameras_);
 
   if (lastAddedImageTimestamp_ > stamp
@@ -215,6 +217,14 @@ bool ThreadedKFVio::addImage(const okvis::Time & stamp, size_t cameraIndex,
     frame->measurement.keypoints = *keypoints;
   } else {
     frame->measurement.deliversKeypoints = false;
+  }
+
+  frame->measurement.hasROI = false;
+  if (has_roi) {
+    frame->measurement.hasROI = true;
+    frame->measurement.roi = roi;
+  } else {
+    frame->measurement.hasROI = false;
   }
 
   if (blocking_) {

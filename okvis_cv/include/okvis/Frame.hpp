@@ -44,6 +44,7 @@
 #include <Eigen/StdVector>
 #include <Eigen/Core>
 #include <memory>
+#include <array>
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
 #include <opencv2/core/core.hpp> // Code that causes warning goes here
@@ -103,6 +104,14 @@ class Frame
   /// \brief Set the extractor
   /// @param[in] extractor The extractor to be used.
   inline void setExtractor(std::shared_ptr<cv::DescriptorExtractor> extractor);
+
+  /// \brief Set the ROI
+  /// @param[in] roi The ROI
+  inline void setROI(std::array<uint32_t, 4> roi);
+
+  /// \brief Clear the ROI
+  /// @param[in] roi The ROI
+  inline void clearROI();
 
   /// \brief Obtain the image
   /// \return The image.
@@ -195,6 +204,8 @@ class Frame
   std::vector<cv::KeyPoint> keypoints_;  ///< we store keypoints using OpenCV's struct
   cv::Mat descriptors_;  ///< we store the descriptors using OpenCV's matrices
   std::vector<uint64_t> landmarkIds_;  ///< landmark Id, if associated -- 0 otherwise
+  bool hasROI_;
+  std::array<uint32_t, 4> roi_; ///< ROI, min row, max row, min col, max col
 };
 
 }  // namespace okvis

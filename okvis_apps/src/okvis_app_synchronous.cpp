@@ -358,7 +358,9 @@ int main(int argc, char **argv)
 
       // add the image to the frontend for (blocking) processing
       if (t - start > deltaT) {
-        okvis_estimator.addImage(t, i, filtered);
+        std::array<uint32_t, 4> roi;
+        roi[0] = roi[2] = 0; roi[1] = roi[3] = 1024;
+        okvis_estimator.addImage(t, i, filtered, nullptr, nullptr, true, roi);
       }
 
       cam_iterators[i]++;

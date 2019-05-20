@@ -50,7 +50,8 @@ Frame::Frame(const cv::Mat & image,
     : image_(image),
       cameraGeometry_(cameraGeometry),
       detector_(detector),
-      extractor_(extractor)
+      extractor_(extractor),
+      hasROI_(false)
 {
 }
 
@@ -76,6 +77,17 @@ void Frame::setDetector(std::shared_ptr<cv::FeatureDetector> detector)
 void Frame::setExtractor(std::shared_ptr<cv::DescriptorExtractor> extractor)
 {
   extractor_ = extractor;
+}
+
+// set the ROI
+void Frame::setROI(std::array<uint32_t, 4> roi) {
+  hasROI_ = true;
+  roi_ = roi;
+}
+
+// clear the ROI
+void Frame::clearROI() {
+  hasROI_ = false;
 }
 
 // obtain the image
@@ -118,6 +130,14 @@ int Frame::detect()
   OKVIS_ASSERT_TRUE_DBG(Exception, detector_ != NULL,
                         "Detector not initialised!");
   detector_->detect(image_, keypoints_);
+  if (hasROI_) {
+    for (size_t i = keypoints_.size(); i > 0; i--) {
+      if (roi_[0] > keypoints_[i-1].pt.x || keypoints_[i-1].pt.x > roi_[1] ||
+          roi_[2] > keypoints_[i-1].pt.y || keypoints_[i-1].pt.y > roi_[3]) {
+        keypoints_.erase(keypoints_.begin() + i-1);
+      }
+    }
+  }
   return keypoints_.size();
 }
 

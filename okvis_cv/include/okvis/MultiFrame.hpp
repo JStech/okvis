@@ -42,6 +42,7 @@
 #define INCLUDE_OKVIS_MULTIFRAME_HPP_
 
 #include <memory>
+#include <array>
 #include <okvis/assert_macros.hpp>
 #include <okvis/Frame.hpp>
 #include <okvis/cameras/NCameraSystem.hpp>
@@ -130,6 +131,11 @@ class MultiFrame
   inline void setExtractor(
       size_t cameraIdx,
       std::shared_ptr<cv::DescriptorExtractor> extractor);
+
+  /// \brief Set the ROI
+  /// @param[in] cameraIdx The camera index.
+  /// @param[in] roi The ROI
+  inline void setROI(size_t cameraIdx, std::array<uint32_t, 4> roi);
 
   /// \brief Obtain the image
   /// @param[in] cameraIdx The camera index.
