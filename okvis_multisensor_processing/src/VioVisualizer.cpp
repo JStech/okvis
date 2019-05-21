@@ -74,6 +74,8 @@ void VioVisualizer::init(okvis::VioParameters& parameters) {
 cv::Mat VioVisualizer::drawMatches(VisualizationData::Ptr& data,
                                    size_t image_number) {
 
+  bool horiz = true;
+
   std::shared_ptr<okvis::MultiFrame> keyframe = data->keyFrames;
   std::shared_ptr<okvis::MultiFrame> frame = data->currentFrames;
 
@@ -84,10 +86,11 @@ cv::Mat VioVisualizer::drawMatches(VisualizationData::Ptr& data,
   const unsigned int im_cols = frame->image(image_number).cols;
   const unsigned int im_rows = frame->image(image_number).rows;
   const unsigned int rowJump = im_rows;
+  const unsigned int colJump = im_cols;
 
-  cv::Mat outimg(2 * im_rows, im_cols, CV_8UC3);
+  cv::Mat outimg((1 + !horiz) * im_rows, (1 + horiz)*im_cols, CV_8UC3);
   // copy current images Rect_(_Tp _x, _Tp _y, _Tp _width, _Tp _height);
-  cv::Mat current = outimg(cv::Rect(0, rowJump, im_cols, im_rows));
+  cv::Mat current = outimg(cv::Rect((horiz * colJump), (!horiz * rowJump), im_cols, im_rows));
   cv::Mat actKeyframe = outimg(cv::Rect(0, 0, im_cols, im_rows));
 
   cv::cvtColor(frame->image(image_number), current, CV_GRAY2BGR);
@@ -177,8 +180,8 @@ cv::Mat VioVisualizer::drawMatches(VisualizationData::Ptr& data,
       if (isVisibleInKeyframe) {
         // found in the keyframe. draw line
         cv::line(outimg, cv::Point2f(keyframePt[0], keyframePt[1]),
-                 cv::Point2f(keypoint[0], keypoint[1] + rowJump), color, 1,
-                 CV_AA);
+                 cv::Point2f(keypoint[0] + (horiz * colJump),
+                   keypoint[1] + (!horiz * rowJump)), color, 1, CV_AA);
         cv::circle(actKeyframe, cv::Point2f(keyframePt[0], keyframePt[1]),
                    0.5 * it->keypointSize, color, 1, CV_AA);
       }
@@ -192,8 +195,8 @@ cv::Mat VioVisualizer::drawMatches(VisualizationData::Ptr& data,
     const double angle = cvKeypoint.angle / 180.0 * M_PI;
     cv::line(
         outimg,
-        cv::Point2f(keypoint[0], keypoint[1] + rowJump),
-        cv::Point2f(keypoint[0], keypoint[1] + rowJump)
+        cv::Point2f(keypoint[0] + (horiz * colJump), keypoint[1] + (!horiz * rowJump)),
+        cv::Point2f(keypoint[0] + (horiz * colJump), keypoint[1] + (!horiz * rowJump))
             + cv::Point2f(cos(angle), sin(angle)) * r,
         color, 1,
         CV_AA);

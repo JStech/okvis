@@ -664,7 +664,13 @@ void ThreadedKFVio::display() {
   for (size_t im = 0; im < parameters_.nCameraSystem.numCameras(); im++) {
     std::stringstream windowname;
     windowname << "OKVIS camera " << im;
-    cv::imshow(windowname.str(), out_images[im]);
+    int rows = out_images[im].rows;
+    int cols = out_images[im].cols;
+    float scale = fminf(900. / static_cast<float>(rows), 1.);
+    scale = fminf(1400. / static_cast<float>(cols), scale);
+    cv::Mat outimg;
+    cv::resize(out_images[im], outimg, cv::Size(), scale, scale, CV_INTER_LINEAR);
+    cv::imshow(windowname.str(), outimg);
   }
   cv::waitKey(1);
 }
