@@ -44,7 +44,6 @@
 #include <Eigen/StdVector>
 #include <Eigen/Core>
 #include <memory>
-#include <array>
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
 #include <opencv2/core/core.hpp> // Code that causes warning goes here
@@ -55,6 +54,7 @@
 #pragma GCC diagnostic pop
 #include <okvis/Time.hpp>
 #include <okvis/assert_macros.hpp>
+#include <okvis/FrameTypedefs.hpp>
 #include "okvis/cameras/CameraBase.hpp"
 
 /// \brief okvis Main namespace of this package.
@@ -107,7 +107,7 @@ class Frame
 
   /// \brief Set the ROI
   /// @param[in] roi The ROI
-  inline void setROI(std::array<uint32_t, 4> roi);
+  inline void setROI(okvis::ROI roi);
 
   /// \brief Clear the ROI
   /// @param[in] roi The ROI
@@ -205,7 +205,7 @@ class Frame
   cv::Mat descriptors_;  ///< we store the descriptors using OpenCV's matrices
   std::vector<uint64_t> landmarkIds_;  ///< landmark Id, if associated -- 0 otherwise
   bool hasROI_;
-  std::array<uint32_t, 4> roi_; ///< ROI, min row, max row, min col, max col
+  okvis::ROI roi_; ///< ROI, min row, max row, min col, max col
 };
 
 }  // namespace okvis

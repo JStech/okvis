@@ -41,6 +41,7 @@
 #ifndef INCLUDE_OKVIS_FRAMETYPEDEFS_HPP_
 #define INCLUDE_OKVIS_FRAMETYPEDEFS_HPP_
 
+#include <array>
 #include <map>
 
 #include <Eigen/Core>
@@ -232,6 +233,7 @@ typedef std::vector<Observation, Eigen::aligned_allocator<Observation> > Observa
 // todo: find a better place for this
 typedef Eigen::Matrix<double, 9, 1> SpeedAndBiases;
 typedef Eigen::Matrix<double, 9, 1> SpeedAndBias;
+typedef std::array<Eigen::Vector2d, 4> ROI;
 
 }  // namespace okvis
 

@@ -80,7 +80,7 @@ void Frame::setExtractor(std::shared_ptr<cv::DescriptorExtractor> extractor)
 }
 
 // set the ROI
-void Frame::setROI(std::array<uint32_t, 4> roi) {
+void Frame::setROI(okvis::ROI roi) {
   hasROI_ = true;
   roi_ = roi;
 }
@@ -132,8 +132,14 @@ int Frame::detect()
   detector_->detect(image_, keypoints_);
   if (hasROI_) {
     for (size_t i = keypoints_.size(); i > 0; i--) {
-      if (roi_[0] > keypoints_[i-1].pt.x || keypoints_[i-1].pt.x > roi_[1] ||
-          roi_[2] > keypoints_[i-1].pt.y || keypoints_[i-1].pt.y > roi_[3]) {
+      bool is_in = true;
+      for (uint32_t j = 0; is_in && (j < 4); j++) {
+        Eigen::Vector2d kp(keypoints_[i-1].pt.x, keypoints_[i-1].pt.y);
+        Eigen::Vector2d v1(roi_[(j+1)%4] - roi_[j]);
+        Eigen::Vector2d v2(kp - roi_[j]);
+        is_in = is_in && (v1[0]*v2[1] - v1[1]*v2[0] > 0);
+      }
+      if (!is_in) {
         keypoints_.erase(keypoints_.begin() + i-1);
       }
     }

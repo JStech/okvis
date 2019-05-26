@@ -141,7 +141,7 @@ void MultiFrame::setExtractor(
   frames_[cameraIdx].setExtractor(extractor);
 }
 
-void MultiFrame::setROI(size_t cameraIdx, std::array<uint32_t, 4> roi) {
+void MultiFrame::setROI(size_t cameraIdx, okvis::ROI roi) {
   OKVIS_ASSERT_TRUE_DBG(Exception, cameraIdx < frames_.size(), "Out of range");
   frames_[cameraIdx].setROI(roi);
 }

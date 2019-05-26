@@ -133,7 +133,7 @@ class ThreadedKFVio : public VioInterface {
                         const std::vector<cv::KeyPoint> * keypoints = 0,
                         bool* asKeyframe = 0,
                         bool has_roi = false,
-                        std::array<uint32_t, 4> roi = std::array<uint32_t, 4>());
+                        okvis::ROI roi = okvis::ROI());
 
 
   /**

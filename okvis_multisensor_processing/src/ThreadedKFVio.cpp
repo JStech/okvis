@@ -194,7 +194,7 @@ bool ThreadedKFVio::addImage(const okvis::Time & stamp, size_t cameraIndex,
                              const std::vector<cv::KeyPoint> * keypoints,
                              bool* /*asKeyframe*/,
                              bool has_roi,
-                             std::array<uint32_t, 4> roi) {
+                             okvis::ROI roi) {
   assert(cameraIndex<numCameras_);
 
   if (lastAddedImageTimestamp_ > stamp
@@ -795,6 +795,7 @@ void ThreadedKFVio::optimizationLoop() {
                                    lastOptimizedSpeedAndBiases_);
         lastOptimizedStateTimestamp_ = frame_pairs->timestamp();
 
+        result.stamp = lastOptimizedStateTimestamp_;
         // if we publish the state after each IMU propagation we do not need to publish it here.
         if (!parameters_.publishing.publishImuPropagatedState) {
           result.T_WS = lastOptimized_T_WS_;

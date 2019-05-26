@@ -42,7 +42,6 @@
 
 #include <deque>
 #include <vector>
-#include <array>
 #include <memory>
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
@@ -54,6 +53,7 @@
 #include <Eigen/Dense>
 #include <okvis/Time.hpp>
 #include <okvis/kinematics/Transformation.hpp>
+#include <okvis/FrameTypedefs.hpp>
 
 /// \brief okvis Main namespace of this package.
 namespace okvis {
@@ -168,7 +168,7 @@ struct CameraData {
   std::vector<cv::KeyPoint> keypoints; ///< Keypoints if available.
   bool deliversKeypoints; ///< Are the keypoints delivered too?
   bool hasROI; ///< Does the image have an associated ROI?
-  std::array<uint32_t, 4> roi; ///< The ROI.
+  okvis::ROI roi; ///< The ROI.
 };
 /// \brief Keypoint measurement.
 struct KeypointData {
