@@ -201,6 +201,22 @@ cv::Mat VioVisualizer::drawMatches(VisualizationData::Ptr& data,
         color, 1,
         CV_AA);
   }
+
+  // draw ROI
+  okvis::ROI roi;
+  if (frame->getROI(image_number, &roi)) {
+    cv::Scalar color;
+    color = cv::Scalar(255, 255, 0);  // yellow
+    for (size_t i=0; i<4; i++) {
+      size_t j = (i+1)%4;
+      cv::line(
+          outimg,
+          cv::Point2f(roi[i][1] + (horiz * colJump), roi[i][0] + (!horiz * rowJump)),
+          cv::Point2f(roi[j][1] + (horiz * colJump), roi[j][0] + (!horiz * rowJump)),
+          color, 1, CV_AA);
+    }
+  }
+
   return outimg;
 }
 

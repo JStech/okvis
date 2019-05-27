@@ -85,6 +85,12 @@ void Frame::setROI(okvis::ROI roi) {
   roi_ = roi;
 }
 
+// get the ROI
+bool Frame::getROI(okvis::ROI *roi) {
+  (*roi) = roi_;
+  return hasROI_;
+}
+
 // clear the ROI
 void Frame::clearROI() {
   hasROI_ = false;
@@ -134,10 +140,10 @@ int Frame::detect()
     for (size_t i = keypoints_.size(); i > 0; i--) {
       bool is_in = true;
       for (uint32_t j = 0; is_in && (j < 4); j++) {
-        Eigen::Vector2d kp(keypoints_[i-1].pt.x, keypoints_[i-1].pt.y);
+        Eigen::Vector2d kp(keypoints_[i-1].pt.y, keypoints_[i-1].pt.x);
         Eigen::Vector2d v1(roi_[(j+1)%4] - roi_[j]);
         Eigen::Vector2d v2(kp - roi_[j]);
-        is_in = is_in && (v1[0]*v2[1] - v1[1]*v2[0] > 0);
+        is_in = is_in && (v1[0]*v2[1] - v1[1]*v2[0] < 0);
       }
       if (!is_in) {
         keypoints_.erase(keypoints_.begin() + i-1);

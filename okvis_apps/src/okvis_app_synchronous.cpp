@@ -484,6 +484,7 @@ void getROI(okvis::Time t, okvis::ROI *roi) {
       std::cerr << "ROI EOF" << std::endl;
       roi_end = false;
     }
+    cleanExit(0);
     (*roi)[0] = Eigen::Vector2d(0, 0);
     (*roi)[3] = Eigen::Vector2d(0, 1023);
     (*roi)[2] = Eigen::Vector2d(1023, 1023);
@@ -497,5 +498,4 @@ void getROI(okvis::Time t, okvis::ROI *roi) {
     std::getline(ss, field, ',');
     (*roi)[i][1] = std::strtol(field.c_str(), NULL, 10);
   }
-
 }

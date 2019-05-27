@@ -109,6 +109,10 @@ class Frame
   /// @param[in] roi The ROI
   inline void setROI(okvis::ROI roi);
 
+  /// \brief Get the ROI
+  /// @param[in] roi The ROI
+  inline bool getROI(okvis::ROI *roi);
+
   /// \brief Clear the ROI
   /// @param[in] roi The ROI
   inline void clearROI();

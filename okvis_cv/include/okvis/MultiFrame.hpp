@@ -136,6 +136,11 @@ class MultiFrame
   /// @param[in] roi The ROI
   inline void setROI(size_t cameraIdx, okvis::ROI roi);
 
+  /// \brief Get the ROI
+  /// @param[in] cameraIdx The camera index.
+  /// @param[in] roi The ROI
+  inline bool getROI(size_t cameraIdx, okvis::ROI *roi);
+
   /// \brief Obtain the image
   /// @param[in] cameraIdx The camera index.
   /// \return The image.

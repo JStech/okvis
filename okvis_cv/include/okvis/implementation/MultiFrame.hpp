@@ -146,6 +146,11 @@ void MultiFrame::setROI(size_t cameraIdx, okvis::ROI roi) {
   frames_[cameraIdx].setROI(roi);
 }
 
+bool MultiFrame::getROI(size_t cameraIdx, okvis::ROI *roi) {
+  OKVIS_ASSERT_TRUE_DBG(Exception, cameraIdx < frames_.size(), "Out of range");
+  return frames_[cameraIdx].getROI(roi);
+}
+
 // Obtain the image
 const cv::Mat & MultiFrame::image(size_t cameraIdx) const
 {
