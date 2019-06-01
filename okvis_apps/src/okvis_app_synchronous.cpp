@@ -360,7 +360,7 @@ int main(int argc, char **argv) {
     for (size_t i = 0; i < numCameras; ++i) {
       if (cam_iterators[i] == image_names[i].end()) {
         std::cout << std::endl << "Finished. Press any key to exit." << std::endl << std::flush;
-        cv::waitKey();
+        //cv::waitKey();
         cleanExit(0);
       }
     }
@@ -484,11 +484,11 @@ void getROI(okvis::Time t, okvis::ROI *roi) {
       std::cerr << "ROI EOF" << std::endl;
       roi_end = false;
     }
-    cleanExit(0);
+    // cleanExit(0);
     (*roi)[0] = Eigen::Vector2d(0, 0);
-    (*roi)[3] = Eigen::Vector2d(0, 1023);
-    (*roi)[2] = Eigen::Vector2d(1023, 1023);
-    (*roi)[1] = Eigen::Vector2d(1023, 0);
+    (*roi)[3] = Eigen::Vector2d(1024, 0);
+    (*roi)[2] = Eigen::Vector2d(1024, 1024);
+    (*roi)[1] = Eigen::Vector2d(0, 1024);
     return;
   }
 
