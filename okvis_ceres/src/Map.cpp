@@ -4,7 +4,7 @@
  *
  *  Redistribution and use in source and binary forms, with or without
  *  modification, are permitted provided that the following conditions are met:
- * 
+ *
  *   * Redistributions of source code must retain the above copyright notice,
  *     this list of conditions and the following disclaimer.
  *   * Redistributions in binary form must reproduce the above copyright notice,
@@ -168,7 +168,13 @@ bool Map::getPoseUncertainty(uint64_t parameterBlockId, Eigen::Matrix<double, 6,
   Eigen::MatrixXd t(6, 6);
   double sigma2;
   getLhs(parameterBlockId, t, &sigma2);
-  P_T_WS = sigma2 * t.inverse();
+  Eigen::FullPivLU<Eigen::MatrixXd> LU(t);
+  if (LU.rank() != 6) {
+    t = t.completeOrthogonalDecomposition().pseudoInverse();
+  } else {
+    t = t.inverse();
+  }
+  P_T_WS = sigma2 * t;
   return true;
 }
 
@@ -192,6 +198,9 @@ bool Map::getUncertainty(std::vector<uint64_t> parameterBlockIds,
     J_pos.push_back(J_pos.back() + J_size.back());
   }
   size_t J_n = J_pos.back();
+  OKVIS_ASSERT_TRUE(Exception, (J_n == P.rows()) && (J_n == P.cols()),
+      "Covariance wrong size: " << J_n << " vs " << P.rows() << "x" <<
+      P.cols());
 
   double s2 = 0;
   uint32_t m = 0;
@@ -248,7 +257,7 @@ bool Map::getUncertainty(std::vector<uint64_t> parameterBlockIds,
     m += residualsEigen.size();
 
     // stacked Jacobian is res_n rows (# of residuals) by J_n cols (# of
-    // parameters, in minimal rep) 
+    // parameters, in minimal rep)
     Eigen::MatrixXd J_stacked = Eigen::MatrixXd::Zero(res_n, J_n);
     // piece together relevant parts of the Jacobian
     for (size_t j = 0; j < N; j++) {
@@ -256,9 +265,22 @@ bool Map::getUncertainty(std::vector<uint64_t> parameterBlockIds,
 	J_stacked.block(0, J_pos[j], res_n, J_size[j]) = jacobiansMinimalEigen[J_idx[j]];
       }
     }
+
     P += J_stacked.transpose() * J_stacked;
   }
-  P = (s2 / (m - J_n)) * P.inverse();
+  Eigen::FullPivLU<Eigen::MatrixXd> LU(P);
+  if (LU.rank() != J_n) {
+    LOG(WARNING) << "Rank-deficient Hessian: " << LU.rank() << "<" << J_n <<
+      ", calculating pseudoinverse";
+    P = P.completeOrthogonalDecomposition().pseudoInverse();
+  } else {
+    LOG(INFO) << "Full rank Hessian: " << LU.rank() << "<" << J_n;
+    P = P.inverse();
+  }
+  P = (s2 / (m - J_n)) * P;
+  for (size_t i = 0; i < J_n; i++) {
+    OKVIS_ASSERT_TRUE(Exception, P(i, i) >= 0, "Bad covariance " << s2 << " " << m << " " << J_n);
+  }
   return true;
 }
 

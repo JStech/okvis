@@ -98,6 +98,11 @@ void VioInterface::setFullStateWithUncertaintyCallback(
   fullStateWithUncertaintyCallback_ = fullStateWithUncertaintyCallback;
 }
 
+void VioInterface::setFullUncertaintyCallback(
+    const FullUncertaintyCallback & fullUncertaintyCallback) {
+  fullUncertaintyCallback_ = fullUncertaintyCallback;
+}
+
 // Set the callback to be called every time a new state is estimated.
 void VioInterface::setFullStateCallbackWithExtrinsics(
     const FullStateCallbackWithExtrinsics & fullStateCallbackWithExtrinsics) {

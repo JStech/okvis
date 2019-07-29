@@ -4,7 +4,7 @@
  *
  *  Redistribution and use in source and binary forms, with or without
  *  modification, are permitted provided that the following conditions are met:
- * 
+ *
  *   * Redistributions of source code must retain the above copyright notice,
  *     this list of conditions and the following disclaimer.
  *   * Redistributions in binary form must reproduce the above copyright notice,
@@ -1049,6 +1049,7 @@ bool Estimator::getPoseUncertainty(Eigen::Matrix<double,6,6> & P_T_WS) const {
 }
 
 bool Estimator::getStateUncertainty(Eigen::Matrix<double,15,15> & P) const {
+  P.setZero();
   uint64_t pose_id = statesMap_.rbegin()->second.id;
   uint64_t speedAndBias_id =
     statesMap_.rbegin()->second.sensors.at(SensorStates::Imu)
@@ -1056,8 +1057,37 @@ bool Estimator::getStateUncertainty(Eigen::Matrix<double,15,15> & P) const {
   std::vector<uint64_t> block_ids = {pose_id, speedAndBias_id};
   // TODO: get this to work without the temporary matrix/coping
   Eigen::MatrixXd t(15, 15);
+
   bool r = mapPtr_->getUncertainty(block_ids, t);
-  P = t;
+  if (r) {
+    P = t;
+  }
+  return r;
+}
+
+bool Estimator::getAllPoseUncertainties(std::vector<okvis::Time> & ts,
+    Eigen::MatrixXd & P) const {
+  P.setZero();
+  std::vector<uint64_t> block_ids;
+  ts.clear();
+  uint32_t matSize = 0;
+  for (auto state : statesMap_) {
+    ts.push_back(state.second.timestamp);
+    block_ids.push_back(state.second.id);
+    matSize += 6;
+    if (isInImuWindow(state.second.id)) {
+      block_ids.push_back(state.second.sensors.at(SensorStates::Imu).at(0)
+	  .at(ImuSensorStates::SpeedAndBias).id);
+      matSize += 9;
+    }
+  }
+
+  // TODO: get this to work without the temporary matrix/coping
+  Eigen::MatrixXd t(matSize, matSize);
+  bool r = mapPtr_->getUncertainty(block_ids, t);
+  if (r) {
+    P = t;
+  }
   return r;
 }
 

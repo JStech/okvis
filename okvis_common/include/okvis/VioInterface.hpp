@@ -82,6 +82,9 @@ class VioInterface {
            const Eigen::Matrix<double, 3, 1> &,
 	   const Eigen::Matrix<double, 15, 15> &)> FullStateWithUncertaintyCallback;
   typedef std::function<
+      void(const std::vector<okvis::Time> &,
+	   const Eigen::MatrixXd &)> FullUncertaintyCallback;
+  typedef std::function<
       void(
           const okvis::Time &,
           const okvis::kinematics::Transformation &,
@@ -296,6 +299,9 @@ class VioInterface {
   virtual void setFullStateWithUncertaintyCallback(
       const FullStateWithUncertaintyCallback & fullStateWithUncertaintyCallback);
 
+  virtual void setFullUncertaintyCallback(
+      const FullUncertaintyCallback & fullUncertaintyCallback);
+
   /// \brief Set the fullStateCallbackWithExtrinsics to be called every time a new state is estimated.
   ///        When an implementing class has an estimate, they can call:
   ///        _fullStateCallbackWithEctrinsics( stamp, T_w_vk, speedAndBiases, omega_S, vector_of_T_SCi);
@@ -338,6 +344,7 @@ class VioInterface {
   StateWithUncertaintyCallback stateWithUncertaintyCallback_; ///< State callback function.
   StateCallback stateCallback_; ///< State callback function.
   FullStateWithUncertaintyCallback fullStateWithUncertaintyCallback_; ///< Full state callback function.
+  FullUncertaintyCallback fullUncertaintyCallback_; ///< Full state callback function.
   FullStateCallback fullStateCallback_; ///< Full state callback function.
   FullStateCallbackWithExtrinsics fullStateCallbackWithExtrinsics_; ///< Full state and extrinsics callback function.
   LandmarksCallback landmarksCallback_; ///< Landmarks callback function.

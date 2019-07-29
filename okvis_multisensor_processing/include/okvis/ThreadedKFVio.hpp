@@ -305,6 +305,8 @@ class ThreadedKFVio : public VioInterface {
     okvis::MapPointVector transferredLandmarks; ///< Vector of the landmarks that have been marginalized out.
     bool onlyPublishLandmarks;                  ///< Boolean to signalise the publisherLoop() that only the landmarks should be published
     Eigen::Matrix<double, 15, 15> P;		///< The full state uncertainty
+    Eigen::MatrixXd P_all;			///< The uncertainty of all states in optimization
+    std::vector<okvis::Time> frame_stamps;      ///< The timestamps for all frames in the optimization
   };
 
   /// @name State variables
@@ -327,6 +329,12 @@ class ThreadedKFVio : public VioInterface {
   /// \brief Resulting covariance of whole state of the last optimization
   /// \warning Lock lastState_mutex_.
   Eigen::Matrix<double, 15, 15> lastOptimized_P_;
+  /// \brief Resulting covariance of all states in the last optimization
+  /// \warning Lock lastState_mutex_.
+  Eigen::MatrixXd lastOptimized_P_all_;
+  /// \brief Timestamps of all frames in the optimization
+  /// \warning Lock lastState_mutex_.
+  std::vector<okvis::Time> lastOptimized_frameStamps_;
   /// \brief Resulting speeds and IMU biases after last optimization.
   /// \warning Lock lastState_mutex_.
   okvis::SpeedAndBias lastOptimizedSpeedAndBiases_;
