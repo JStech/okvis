@@ -357,7 +357,10 @@ class Estimator : public VioBackendInterface
 
   bool getStateUncertainty(Eigen::Matrix<double,15,15> & P) const;
 
-  bool getAllPoseUncertainties(std::vector<okvis::Time> & ts, Eigen::MatrixXd & P) const;
+  bool getAllPoseUncertainties(std::vector<okvis::Time> & ts,
+      Eigen::MatrixXd & P, bool includeSpeedAndBias=true) const;
+
+  void keyframeDecision(size_t numKeyframes, size_t numImuFrames);
 
   ///@}
   /// @name Setters
@@ -418,6 +421,8 @@ class Estimator : public VioBackendInterface
   ///@}
 
  private:
+
+  double kfInfo(Eigen::MatrixXd P);
 
   /**
    * @brief Remove an observation from a landmark.

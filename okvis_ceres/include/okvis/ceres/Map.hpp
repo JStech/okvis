@@ -150,6 +150,9 @@ class Map {
   bool getUncertainty(std::vector<uint64_t> parameterBlockIds,
       Eigen::Ref<Eigen::MatrixXd> P);
 
+  void getInfo(uint64_t poseBlockId, std::vector<uint64_t> otherPoseBlockIds,
+      Eigen::MatrixXd& I);
+
   /// @name add/remove
   /// @{
 

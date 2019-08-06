@@ -429,12 +429,91 @@ bool vectorContains(const std::vector<T> & vector, const T & query){
   return false;
 }
 
+
+// variance scoring
+// condition out (Schur complement) first pose, find log det of remaining
+// covariance
+double Estimator::kfInfo(Eigen::MatrixXd P) {
+  size_t n = P.rows();
+  Eigen::MatrixXd C = P.bottomRightCorner(n-6, n-6) - P.bottomLeftCorner(n-6, 6)
+    * P.topLeftCorner(6, 6).inverse() * P.topRightCorner(6, n-6);
+  Eigen::LDLT<Eigen::MatrixXd> chol(C);
+  Eigen::VectorXd d = chol.vectorD();
+  double s = 0;
+  return d.array().log().sum();
+}
+
+// Evaluates the observed Fisher information from the oldest keyframe and from
+// the trial keyframe (which just rolled off the IMU window) to decide whether
+// to use trial keyframe or keep the old one
+void Estimator::keyframeDecision(size_t nKF, size_t nIF) {
+
+  std::vector<okvis::Time> ts;
+  Eigen::MatrixXd P;
+  getAllPoseUncertainties(ts, P, false);
+
+  size_t n_frames = ts.size();
+  if (n_frames < nKF + nIF + 1) {
+    // TODO: find kf ID, make keyframe: statesMap_.at(trialKfId).isKeyframe = true;
+    return;
+  }
+
+  // sanity check--probably should remove this later
+  OKVIS_ASSERT_TRUE(Exception, (n_frames*6 == P.cols()) && (n_frames*6 == P.rows()),
+      "Wrong size covariance for n_frames: " << n_frames << ", " << P.rows() <<
+      "x" << P.cols());
+  for (size_t i = 1; i < n_frames; i++) {
+    OKVIS_ASSERT_TRUE(Exception, ts[i] > ts[i-1], "Covariance out of order: " <<
+	ts[i] << " !> " << ts[i-1]);
+  }
+
+  // Permute covariance to:
+  //   1) eliminate pose being marginalized
+  //   2) move pose being conditioned to top/left (front)
+  Eigen::MatrixXd P_old(6*(n_frames-1), 6*(n_frames-1));
+  Eigen::MatrixXd P_new(6*(n_frames-1), 6*(n_frames-1));
+
+  // Keeping old keyframe: this just requires dropping the new keyframe
+  P_old.topLeftCorner(6*nKF, 6*nKF) = P.topLeftCorner(6*nKF, 6*nKF);
+  P_old.topRightCorner(6*nKF, 6*nIF) = P.topRightCorner(6*nKF, 6*nIF);
+  P_old.bottomLeftCorner(6*nIF, 6*nKF) = P.bottomLeftCorner(6*nIF, 6*nKF);
+  P_old.bottomRightCorner(6*nIF, 6*nIF) = P.bottomRightCorner(6*nIF, 6*nIF);
+
+  // Taking new keyframe: this requires dropping old, and moving new to front
+  std::vector<size_t> b_i = {0, 6, 6*nKF, 6*(nKF+1)};
+  std::vector<size_t> b_s = {6, 6*(nKF-1), 6, 6*nIF};
+  std::vector<size_t> c_i = {0, 6, 6*nKF};
+  std::vector<size_t> c_s = {6, 6*(nKF-1), 6*nIF};
+
+  P_new.block(c_i[0], c_i[0], c_s[0], c_s[0]) = P.block(b_i[2], b_i[2], b_s[2], b_s[2]);
+  P_new.block(c_i[0], c_i[1], c_s[0], c_s[1]) = P.block(b_i[2], b_i[1], b_s[2], b_s[1]);
+  P_new.block(c_i[0], c_i[2], c_s[0], c_s[2]) = P.block(b_i[2], b_i[3], b_s[2], b_s[3]);
+  P_new.block(c_i[1], c_i[0], c_s[1], c_s[0]) = P.block(b_i[1], b_i[2], b_s[1], b_s[2]);
+  P_new.block(c_i[1], c_i[1], c_s[1], c_s[1]) = P.block(b_i[1], b_i[1], b_s[1], b_s[1]);
+  P_new.block(c_i[1], c_i[2], c_s[1], c_s[2]) = P.block(b_i[1], b_i[3], b_s[1], b_s[3]);
+  P_new.block(c_i[2], c_i[0], c_s[2], c_s[0]) = P.block(b_i[3], b_i[2], b_s[3], b_s[2]);
+  P_new.block(c_i[2], c_i[1], c_s[2], c_s[1]) = P.block(b_i[3], b_i[1], b_s[3], b_s[1]);
+  P_new.block(c_i[2], c_i[2], c_s[2], c_s[2]) = P.block(b_i[3], b_i[3], b_s[3], b_s[3]);
+
+  std::ofstream f("t");
+  f << P << std::endl << std::endl << P_new << std::endl << std::endl << P_old;
+  f.close();
+
+  double oldKfScore = kfInfo(P_old);
+  double newKfScore = kfInfo(P_new);
+
+  LOG(FATAL) << "old: " << oldKfScore << " vs. new: " << newKfScore;
+}
+
 // Applies the dropping/marginalization strategy according to the RSS'13/IJRR'14 paper.
 // The new number of frames in the window will be numKeyframes+numImuFrames.
 bool Estimator::applyMarginalizationStrategy(
     size_t numKeyframes, size_t numImuFrames,
     okvis::MapPointVector& removedLandmarks)
 {
+  // keyframe decision
+  keyframeDecision(numKeyframes, numImuFrames);
+
   // keep the newest numImuFrames
   std::map<uint64_t, States>::reverse_iterator rit = statesMap_.rbegin();
   for(size_t k=0; k<numImuFrames; k++){
@@ -444,7 +523,7 @@ bool Estimator::applyMarginalizationStrategy(
       return true;
     }
   }
-
+  
   // remove linear marginalizationError, if existing
   if (marginalizationErrorPtr_ && marginalizationResidualId_) {
     bool success = mapPtr_->removeResidualBlock(marginalizationResidualId_);
@@ -469,11 +548,16 @@ bool Estimator::applyMarginalizationStrategy(
   std::vector<uint64_t> removeAllButPose;
   std::vector<uint64_t> allLinearizedFrames;
   size_t countedKeyframes = 0;
+  bool first_frame = true;
   while (rit != statesMap_.rend()) {
-    if (!rit->second.isKeyframe || countedKeyframes >= numKeyframes) {
-      removeFrames.push_back(rit->second.id);
+    if (!first_frame) {
+      if (!rit->second.isKeyframe || countedKeyframes >= numKeyframes) {
+	removeFrames.push_back(rit->second.id);
+      } else {
+	countedKeyframes++;
+      }
     } else {
-      countedKeyframes++;
+      first_frame = false;
     }
     removeAllButPose.push_back(rit->second.id);
     allLinearizedFrames.push_back(rit->second.id);
@@ -1066,16 +1150,16 @@ bool Estimator::getStateUncertainty(Eigen::Matrix<double,15,15> & P) const {
 }
 
 bool Estimator::getAllPoseUncertainties(std::vector<okvis::Time> & ts,
-    Eigen::MatrixXd & P) const {
+    Eigen::MatrixXd & P, bool includeSpeedAndBias) const {
+  ts.clear();
   P.setZero();
   std::vector<uint64_t> block_ids;
-  ts.clear();
   uint32_t matSize = 0;
   for (auto state : statesMap_) {
     ts.push_back(state.second.timestamp);
     block_ids.push_back(state.second.id);
     matSize += 6;
-    if (isInImuWindow(state.second.id)) {
+    if (includeSpeedAndBias && isInImuWindow(state.second.id)) {
       block_ids.push_back(state.second.sensors.at(SensorStates::Imu).at(0)
 	  .at(ImuSensorStates::SpeedAndBias).id);
       matSize += 9;

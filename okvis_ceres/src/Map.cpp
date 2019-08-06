@@ -97,6 +97,78 @@ void Map::printResidualBlockInfo(
             << errorInterfacePtr(residualBlockId)->typeInfo();
 }
 
+// find information contribution from target pose to poses in list; used to
+// decide whether to keep target pose as a keyframe or not
+void Map::getInfo(uint64_t poseBlockId, std::vector<uint64_t> otherPoseBlockIds,
+    Eigen::MatrixXd & I) {
+  size_t N = otherPoseBlockIds.size();
+  OKVIS_ASSERT_TRUE_DBG(Exception,parameterBlockExists(poseBlockId),"parameter block not in map.");
+  I.setZero();
+
+  ResidualBlockCollection res = residuals(poseBlockId);
+  for (size_t i=0; i < res.size(); i++) {
+    // get all parameters related to this residual
+    ParameterBlockCollection pars = parameters(res[i].residualBlockId);
+    double** parametersRaw = new double*[pars.size()];
+    size_t res_n = res[i].errorInterfacePtr->residualDim();
+    Eigen::VectorXd residualsEigen(res_n);
+    double* residualsRaw = residualsEigen.data();
+
+    double** jacobiansRaw = new double*[pars.size()];
+    std::vector<
+        Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>,
+        Eigen::aligned_allocator<
+            Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
+                Eigen::RowMajor> > > jacobiansEigen(pars.size());
+
+    double** jacobiansMinimalRaw = new double*[pars.size()];
+    std::vector<
+        Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>,
+        Eigen::aligned_allocator<
+            Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
+                Eigen::RowMajor> > > jacobiansMinimalEigen(pars.size());
+    
+    // vector of blocks to include in final calculation
+    std::vector<int64_t> J_idx(N, -1);
+    for (size_t j=0; j < pars.size(); j++) {
+      std::vector<uint64_t>::iterator it = std::find(otherPoseBlockIds.begin(),
+	  otherPoseBlockIds.end(), pars[j].second->id());
+      if (it != otherPoseBlockIds.end()) {
+	J_idx[std::distance(otherPoseBlockIds.begin(), it)] = j;
+      }
+      parametersRaw[j] = pars[j].second->parameters();
+      jacobiansEigen[j].resize(res[i].errorInterfacePtr->residualDim(),
+                               pars[j].second->dimension());
+      jacobiansRaw[j] = jacobiansEigen[j].data();
+      jacobiansMinimalEigen[j].resize(res[i].errorInterfacePtr->residualDim(),
+                                      pars[j].second->minimalDimension());
+      jacobiansMinimalRaw[j] = jacobiansMinimalEigen[j].data();
+    }
+
+    // evaluate residual block
+    res[i].errorInterfacePtr->EvaluateWithMinimalJacobians(parametersRaw,
+                                                           residualsRaw,
+                                                           jacobiansRaw,
+                                                           jacobiansMinimalRaw);
+    
+
+    LOG(WARNING) << "Making J_stacked: " << res_n << "x" << 6*N;
+    Eigen::MatrixXd J_stacked = Eigen::MatrixXd::Zero(res_n, 6*N);
+    for (size_t j=0; j < N; j++) {
+      LOG(WARNING) << J_idx[j];
+      if (J_idx[j] > 0) {
+	J_stacked.block(0, 6*J_idx[j], res_n, J_idx[j]+6) = jacobiansMinimalEigen[J_idx[j]];
+	LOG(WARNING) << "jacobiansMinimalEigen: " << J_idx[j] << " " << jacobiansMinimalEigen[J_idx[j]].rows() << "x" << jacobiansMinimalEigen[J_idx[j]].cols();
+      }
+    }
+
+    LOG(WARNING) << "J_stacked: " << J_stacked.rows() << "x" << J_stacked.cols();
+    LOG(WARNING) << "I: " << I.rows() << "x" << I.cols();
+    
+    I += J_stacked.transpose() * J_stacked;
+  }
+}
+
 // Obtain the Hessian block for a specific parameter block.
 void Map::getLhs(uint64_t parameterBlockId, Eigen::MatrixXd& H, double* sigma2) {
   OKVIS_ASSERT_TRUE_DBG(Exception,parameterBlockExists(parameterBlockId),"parameter block not in map.");
@@ -270,8 +342,8 @@ bool Map::getUncertainty(std::vector<uint64_t> parameterBlockIds,
   }
   Eigen::FullPivLU<Eigen::MatrixXd> LU(P);
   if (LU.rank() != J_n) {
-    LOG(WARNING) << "Rank-deficient Hessian: " << LU.rank() << "<" << J_n <<
-      ", calculating pseudoinverse";
+    // LOG(WARNING) << "Rank-deficient Hessian: " << LU.rank() << "<" << J_n <<
+      // ", calculating pseudoinverse";
     P = P.completeOrthogonalDecomposition().pseudoInverse();
   } else {
     LOG(INFO) << "Full rank Hessian: " << LU.rank() << "<" << J_n;
