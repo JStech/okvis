@@ -143,15 +143,20 @@ class Map {
   bool getPoseUncertainty(uint64_t parameterBlockId, Eigen::Matrix<double, 6, 6> & P_T_WS);
 
   /**
+   * @brief Obtain the information matrix for any set of blocks
+   * @param[in] parameterBlockIds vector of parameter block IDs of interest.
+   * @param[out] I the output information matrix.
+   */
+  bool getInformation(std::vector<uint64_t> parameterBlockIds,
+      Eigen::Ref<Eigen::MatrixXd> I);
+
+  /**
    * @brief Obtain the covariance matrix for any set of blocks
    * @param[in] parameterBlockIds vector of parameter block IDs of interest.
    * @param[out] P the output covariance matrix.
    */
   bool getUncertainty(std::vector<uint64_t> parameterBlockIds,
       Eigen::Ref<Eigen::MatrixXd> P);
-
-  void getInfo(uint64_t poseBlockId, std::vector<uint64_t> otherPoseBlockIds,
-      Eigen::MatrixXd& I);
 
   /// @name add/remove
   /// @{

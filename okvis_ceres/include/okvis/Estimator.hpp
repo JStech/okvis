@@ -357,10 +357,13 @@ class Estimator : public VioBackendInterface
 
   bool getStateUncertainty(Eigen::Matrix<double,15,15> & P) const;
 
+  bool getAllPoseInformation(std::vector<okvis::Time> & ts,
+      Eigen::MatrixXd & I, bool includeSpeedAndBias=true) const;
+
   bool getAllPoseUncertainties(std::vector<okvis::Time> & ts,
       Eigen::MatrixXd & P, bool includeSpeedAndBias=true) const;
 
-  void keyframeDecision(size_t numKeyframes, size_t numImuFrames);
+  void keyframeDecision();
 
   ///@}
   /// @name Setters
@@ -589,6 +592,9 @@ class Estimator : public VioBackendInterface
 
   // ceres iteration callback object
   std::unique_ptr<okvis::ceres::CeresIterationCallback> ceresCallback_; ///< Maybe there was a callback registered, store it here.
+
+  // whether the keyframe window is full
+  bool dropKF_ = false;
 };
 
 }  // namespace okvis
