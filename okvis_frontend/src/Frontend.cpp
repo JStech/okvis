@@ -193,7 +193,7 @@ bool Frontend::dataAssociationAndInitialization(
     }
 
     // keyframe decision, at the moment only landmarks that match with keyframe are initialised
-    *asKeyframe = *asKeyframe || doWeNeedANewKeyframe(estimator, framesInOut);
+    //*asKeyframe = *asKeyframe || doWeNeedANewKeyframe(estimator, framesInOut);
 
     // match to last frame
     TimerSwitchable matchToLastFrameTimer("2.4.2 matchToLastFrame");

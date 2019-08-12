@@ -378,7 +378,7 @@ int main(int argc, char **argv)
     ++counter;
 
     // display progress
-    if (counter % 20 == 0) {
+    if (false && (counter % 20 == 0)) {
       std::cout << "\rProgress: "
           << int(double(counter) / double(num_camera_images) * 100) << "%  "
           << std::flush;

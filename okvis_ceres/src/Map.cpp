@@ -180,7 +180,7 @@ bool Map::getPoseUncertainty(uint64_t parameterBlockId, Eigen::Matrix<double, 6,
 
 // Return information for blocks in vector parameterBlockIds
 bool Map::getInformation(std::vector<uint64_t> parameterBlockIds,
-    Eigen::Ref<Eigen::MatrixXd> I) {
+    Eigen::Ref<Eigen::MatrixXd> I, std::vector<size_t> *parIdx) {
   I.setZero();
   size_t N = parameterBlockIds.size();
   std::vector<size_t> J_size;

@@ -449,27 +449,50 @@ double Estimator::kfInfo(Eigen::MatrixXd I) {
 // the trial keyframe (which just rolled off the IMU window) to decide whether
 // to use trial keyframe or keep the old one
 void Estimator::keyframeDecision() {
+
+  size_t n = 0;
+  size_t nIF = 0;
+  size_t nKF = 0;
+  uint64_t newKfID = 0;
+
+  std::ostringstream s;
+  for (auto state : statesMap_) {
+    s << " " << state.first;
+    if (isInImuWindow(state.second.id)) {
+      nIF++;
+    } else {
+      nKF++;
+      if (!statesMap_.at(state.first).isKeyframe) {
+	newKfID = state.first;
+      }
+    }
+  }
+  n = nIF + nKF;
+  LOG(INFO) << "Keyframe decision: " << (dropKF_ ? "" : "no " ) << "drop, n " << n << ", nIF " << nIF << ", nKF " <<
+    nKF << ", frames " << s.str() << ", newKfID " << newKfID;
+
   if (!dropKF_) {
-    // TODO: find kf ID, make keyframe: statesMap_.at(trialKfId).isKeyframe = true;
+    if (newKfID > 0) statesMap_.at(newKfID).isKeyframe = true;
     return;
   }
 
-  std::vector<okvis::Time> ts;
   Eigen::MatrixXd I;
-  getAllPoseInformation(ts, I);
+  getAllPoseInformation(I);
+  OKVIS_ASSERT_TRUE(Exception, (nKF*6 + nIF*15 == I.cols()) && 
+      (nKF*6 + nIF*15 == I.rows()), "Wrong size information for n: " << n <<
+      ", " << I.rows() << "x" << I.cols());
 
-  size_t n = ts.size();
-  size_t nIF = (I.rows() - 6*n)/9;
-  size_t nKF = n - nIF;
-
-  // sanity check--probably should remove this later
-  // OKVIS_ASSERT_TRUE(Exception, (n*6 + nIF*9 == I.cols()) && (n*6 + nIF*9 == I.rows()),
-  //     "Wrong size information for n: " << n << ", " << I.rows() <<
-  //     "x" << I.cols());
-  // for (size_t i = 1; i < n; i++) {
-  //   OKVIS_ASSERT_TRUE(Exception, ts[i] > ts[i-1], "Information out of order: " <<
-  //       ts[i] << " !> " << ts[i-1]);
-  // }
+  double sum = 0;
+  for (size_t i = 0; i < 6; i++) {
+    for (size_t j = 0; j < I.cols(); j++) {
+      sum += fabs(I(i, j));
+    }
+  }
+  if (sum == 0.) {
+    LOG(WARNING) << "all-zero pose information";
+    if (newKfID > 0) statesMap_.at(newKfID).isKeyframe = true;
+    return;
+  }
 
   // first marginalize the speed and bias
   Eigen::VectorXd P(I.rows());
@@ -521,21 +544,14 @@ void Estimator::keyframeDecision() {
   I_old.block(c_i[2], c_i[1], c_s[2], c_s[1]) = I.block(b_i[3], b_i[1], b_s[3], b_s[1]);
   I_old.block(c_i[2], c_i[2], c_s[2], c_s[2]) = I.block(b_i[3], b_i[3], b_s[3], b_s[3]);
 
-  // std::ofstream f;
-  // f.open("t", std::ofstream::app);
-  // for (auto t : ts) {
-  //   f << " " << t;
-  // }
-  // f << std::endl << std::endl;
-  // f << I << std::endl << std::endl;
-  // f << I_old << std::endl << std::endl;
-  // f << I_new << std::endl << std::endl;
-  // f.close();
-
   double oldKfScore = kfInfo(I_old);
   double newKfScore = kfInfo(I_new);
 
-  LOG(WARNING) << oldKfScore << " vs. " << newKfScore << " " << (oldKfScore > newKfScore ? "OLD" : "NEW");
+  LOG(INFO) << "Old: " << oldKfScore << ", new: " << newKfScore;
+  if (newKfScore > oldKfScore) {
+    LOG(INFO) << "New keyframe: " << newKfID << ", " << statesMap_.at(newKfID).timestamp;
+    statesMap_.at(newKfID).isKeyframe = true;
+  }
 }
 
 // Applies the dropping/marginalization strategy according to the RSS'13/IJRR'14 paper.
@@ -1186,14 +1202,11 @@ bool Estimator::getStateUncertainty(Eigen::Matrix<double,15,15> & P) const {
   return r;
 }
 
-bool Estimator::getAllPoseInformation(std::vector<okvis::Time> & ts,
-    Eigen::MatrixXd & I, bool includeSpeedAndBias) const {
-  ts.clear();
+bool Estimator::getAllPoseInformation(Eigen::MatrixXd & I, bool includeSpeedAndBias) const {
   I.setZero();
   std::vector<uint64_t> block_ids;
   uint32_t matSize = 0;
   for (auto state : statesMap_) {
-    ts.push_back(state.second.timestamp);
     block_ids.push_back(state.second.id);
     matSize += 6;
     if (includeSpeedAndBias && isInImuWindow(state.second.id)) {

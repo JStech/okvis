@@ -148,7 +148,7 @@ class Map {
    * @param[out] I the output information matrix.
    */
   bool getInformation(std::vector<uint64_t> parameterBlockIds,
-      Eigen::Ref<Eigen::MatrixXd> I);
+      Eigen::Ref<Eigen::MatrixXd> I, std::vector<size_t> *parIdx=NULL);
 
   /**
    * @brief Obtain the covariance matrix for any set of blocks
