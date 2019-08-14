@@ -180,8 +180,11 @@ bool Map::getPoseUncertainty(uint64_t parameterBlockId, Eigen::Matrix<double, 6,
 
 // Return information for blocks in vector parameterBlockIds
 bool Map::getInformation(std::vector<uint64_t> parameterBlockIds,
-    Eigen::Ref<Eigen::MatrixXd> I, std::vector<size_t> *parIdx) {
-  I.setZero();
+    Eigen::MatrixXd &I, std::vector<size_t> *parIdx) {
+  bool saveParIdx = static_cast<bool>(parIdx);
+  if (saveParIdx) {
+    parIdx->clear();
+  }
   size_t N = parameterBlockIds.size();
   std::vector<size_t> J_size;
   std::vector<size_t> J_pos = {0};
@@ -197,10 +200,13 @@ bool Map::getInformation(std::vector<uint64_t> parameterBlockIds,
     J_size.push_back(id2ParameterBlock_Map_.find(parBlk_id)->second->minimalDimension());
     J_pos.push_back(J_pos.back() + J_size.back());
   }
+  if (saveParIdx) {
+    *parIdx = J_pos;
+  }
   size_t J_n = J_pos.back();
-  OKVIS_ASSERT_TRUE(Exception, (J_n == I.rows()) && (J_n == I.cols()),
-      "Information wrong size: " << J_n << " vs " << I.rows() << "x" <<
-      I.cols());
+
+  I.resize(J_n, J_n);
+  I.setZero();
 
   double s2 = 0;
   uint32_t m = 0;
@@ -278,7 +284,7 @@ bool Map::getInformation(std::vector<uint64_t> parameterBlockIds,
 
 // Return covariance for blocks in vector parameterBlockIds
 bool Map::getUncertainty(std::vector<uint64_t> parameterBlockIds,
-    Eigen::Ref<Eigen::MatrixXd> P) {
+    Eigen::MatrixXd &P) {
   getInformation(parameterBlockIds, P);
   Eigen::FullPivLU<Eigen::MatrixXd> LU(P);
   if (LU.rank() != P.rows()) {
@@ -289,7 +295,7 @@ bool Map::getUncertainty(std::vector<uint64_t> parameterBlockIds,
     LOG(INFO) << "Full rank Hessian: " << LU.rank() << "<" << P.rows();
     P = P.inverse();
   }
-  for (size_t i = 0; i < P.rows(); i++) {
+  for (int64_t i = 0; i < P.rows(); i++) {
     OKVIS_ASSERT_TRUE(Exception, P(i, i) >= 0, "Bad covariance");
   }
   return true;

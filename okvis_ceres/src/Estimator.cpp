@@ -445,113 +445,65 @@ double Estimator::kfInfo(Eigen::MatrixXd I) {
   return d.array().log().sum();
 }
 
-// Evaluates the observed Fisher information from the oldest keyframe and from
-// the trial keyframe (which just rolled off the IMU window) to decide whether
-// to use trial keyframe or keep the old one
 void Estimator::keyframeDecision() {
 
-  size_t n = 0;
-  size_t nIF = 0;
-  size_t nKF = 0;
-  uint64_t newKfID = 0;
+  std::vector<uint64_t> imuParams;
+  std::vector<uint64_t> keyframeParams;
+  //std::unordered_multimap<uint64_t, uint64_t> landmarks;
+  std::vector<uint64_t> landmarks;
+  uint64_t n_imuFrames = 0;
+  uint64_t n_keyframes = 0;
+  uint64_t n_landmarks = 0;
 
-  std::ostringstream s;
-  for (auto state : statesMap_) {
-    s << " " << state.first;
+  // build info matrix for IMU window
+  for (auto state: statesMap_) {
     if (isInImuWindow(state.second.id)) {
-      nIF++;
+      n_imuFrames++;
+      imuParams.push_back(state.second.id);
+      imuParams.push_back(state.second.sensors.at(SensorStates::Imu).at(0)
+          .at(ImuSensorStates::SpeedAndBias).id);
+      LOG(INFO) << "IMU frame: " << state.first << ", id " << state.second.id <<
+        ", speed and bias " << state.second.sensors.at(SensorStates::Imu).at(0)
+        .at(ImuSensorStates::SpeedAndBias).id;
     } else {
-      nKF++;
-      if (!statesMap_.at(state.first).isKeyframe) {
-	newKfID = state.first;
+      n_keyframes++;
+      keyframeParams.push_back(state.second.id);
+      LOG(INFO) << "Keyframe:  " << state.first << ", id " << state.second.id;
+    }
+  }
+
+  // figure out which landmarks are in which frames
+  for (PointMap::iterator pit = landmarksMap_.begin();
+      pit != landmarksMap_.end(); pit++) {
+    ceres::Map::ResidualBlockCollection residuals =
+      mapPtr_->residuals(pit->first);
+    for (size_t r = 0; r < residuals.size(); ++r) {
+      std::shared_ptr<ceres::ReprojectionErrorBase> reprojectionError =
+        std::dynamic_pointer_cast<ceres::ReprojectionErrorBase>(
+            residuals[r].errorInterfacePtr);
+      if (reprojectionError) {
+        uint64_t poseId =
+          mapPtr_->parameters(residuals[r].residualBlockId).at(0).first;
+        if (vectorContains(imuParams, poseId) || vectorContains(keyframeParams, poseId)) {
+          //landmarks.insert(std::pair<uint64_t, uint64_t>(poseId, pit->first);
+          landmarks.push_back(pit->first);
+          n_landmarks++;
+        }
       }
     }
   }
-  n = nIF + nKF;
-  LOG(INFO) << "Keyframe decision: " << (dropKF_ ? "" : "no " ) << "drop, n " << n << ", nIF " << nIF << ", nKF " <<
-    nKF << ", frames " << s.str() << ", newKfID " << newKfID;
 
-  if (!dropKF_) {
-    if (newKfID > 0) statesMap_.at(newKfID).isKeyframe = true;
-    return;
-  }
+  std::vector<uint64_t> params;
+  params.insert(params.end(), imuParams.begin(), imuParams.end());
+  params.insert(params.end(), keyframeParams.begin(), keyframeParams.end());
+  params.insert(params.end(), landmarks.begin(), landmarks.end());
 
   Eigen::MatrixXd I;
-  getAllPoseInformation(I);
-  OKVIS_ASSERT_TRUE(Exception, (nKF*6 + nIF*15 == I.cols()) && 
-      (nKF*6 + nIF*15 == I.rows()), "Wrong size information for n: " << n <<
-      ", " << I.rows() << "x" << I.cols());
-
-  double sum = 0;
-  for (size_t i = 0; i < 6; i++) {
-    for (size_t j = 0; j < I.cols(); j++) {
-      sum += fabs(I(i, j));
-    }
-  }
-  if (sum == 0.) {
-    LOG(WARNING) << "all-zero pose information";
-    if (newKfID > 0) statesMap_.at(newKfID).isKeyframe = true;
-    return;
-  }
-
-  // first marginalize the speed and bias
-  Eigen::VectorXd P(I.rows());
-  for (size_t i = 0; i < nKF; i++) {
-    for (size_t j = 0; j < 6; j++) {
-      // keyframe pose
-      P[i*6 + j] = i*6 + j;
-    }
-  }
-  for (size_t i = 0; i < nIF; i++) {
-    for (size_t j = 0; j < 6; j++) {
-      // IMU frame pose
-      P[nKF*6 + i*6 + j] = nKF*6 + i*15 + 9 + j;
-    }
-    for (size_t j = 0; j < 9; j++) {
-      // IMU frame speed and bias
-      P[nKF*6 + nIF*6 + i*9 + j] = nKF*6 + i*15 + j;
-    }
-  }
-
-  I = P.asPermutation().transpose()*I*P.asPermutation();
-  I = I.topLeftCorner(6*n, 6*n) - I.topRightCorner(6*n, 9*nIF) *
-    I.bottomRightCorner(9*nIF, 9*nIF).inverse() *
-    I.bottomLeftCorner(9*nIF, 6*n);
-
-  // Set up information matrices for new and old keyframe options
-  Eigen::MatrixXd I_new(6*(n-1), 6*(n-1));
-  Eigen::MatrixXd I_old(6*(n-1), 6*(n-1));
-
-  // Taking new keyframe: drop new frame to condition on it
-  I_new.topLeftCorner(6*(nKF-1), 6*(nKF-1)) = I.topLeftCorner(6*(nKF-1), 6*(nKF-1));
-  I_new.topRightCorner(6*(nKF-1), 6*nIF) = I.topRightCorner(6*(nKF-1), 6*nIF);
-  I_new.bottomLeftCorner(6*nIF, 6*(nKF-1)) = I.bottomLeftCorner(6*nIF, 6*(nKF-1));
-  I_new.bottomRightCorner(6*nIF, 6*nIF) = I.bottomRightCorner(6*nIF, 6*nIF);
-
-  // Keeping old keyframe: this requires dropping old, and moving new to front
-  std::vector<size_t> b_i = {0, 6, 6*(nKF-1), 6*nKF};
-  std::vector<size_t> b_s = {6, 6*(nKF-2), 6, 6*nIF};
-  std::vector<size_t> c_i = {0, 6, 6*(nKF-1)};
-  std::vector<size_t> c_s = {6, 6*(nKF-2), 6*nIF};
-
-  I_old.block(c_i[0], c_i[0], c_s[0], c_s[0]) = I.block(b_i[2], b_i[2], b_s[2], b_s[2]);
-  I_old.block(c_i[0], c_i[1], c_s[0], c_s[1]) = I.block(b_i[2], b_i[1], b_s[2], b_s[1]);
-  I_old.block(c_i[0], c_i[2], c_s[0], c_s[2]) = I.block(b_i[2], b_i[3], b_s[2], b_s[3]);
-  I_old.block(c_i[1], c_i[0], c_s[1], c_s[0]) = I.block(b_i[1], b_i[2], b_s[1], b_s[2]);
-  I_old.block(c_i[1], c_i[1], c_s[1], c_s[1]) = I.block(b_i[1], b_i[1], b_s[1], b_s[1]);
-  I_old.block(c_i[1], c_i[2], c_s[1], c_s[2]) = I.block(b_i[1], b_i[3], b_s[1], b_s[3]);
-  I_old.block(c_i[2], c_i[0], c_s[2], c_s[0]) = I.block(b_i[3], b_i[2], b_s[3], b_s[2]);
-  I_old.block(c_i[2], c_i[1], c_s[2], c_s[1]) = I.block(b_i[3], b_i[1], b_s[3], b_s[1]);
-  I_old.block(c_i[2], c_i[2], c_s[2], c_s[2]) = I.block(b_i[3], b_i[3], b_s[3], b_s[3]);
-
-  double oldKfScore = kfInfo(I_old);
-  double newKfScore = kfInfo(I_new);
-
-  LOG(INFO) << "Old: " << oldKfScore << ", new: " << newKfScore;
-  if (newKfScore > oldKfScore) {
-    LOG(INFO) << "New keyframe: " << newKfID << ", " << statesMap_.at(newKfID).timestamp;
-    statesMap_.at(newKfID).isKeyframe = true;
-  }
+  std::vector<size_t> parIdx;
+  mapPtr_->getInformation(params, I);
+  LOG(INFO) << "IMU frames: " << n_imuFrames << ", keyframes: " << n_keyframes
+    << ", landmarks: " << n_landmarks << ", info matrix: " << I.rows() << "x" <<
+    I.cols();
 }
 
 // Applies the dropping/marginalization strategy according to the RSS'13/IJRR'14 paper.
@@ -599,9 +551,9 @@ bool Estimator::applyMarginalizationStrategy(
   while (rit != statesMap_.rend()) {
     if (!first_frame) {
       if (!rit->second.isKeyframe || countedKeyframes >= numKeyframes) {
-	removeFrames.push_back(rit->second.id);
+        removeFrames.push_back(rit->second.id);
       } else {
-	countedKeyframes++;
+        countedKeyframes++;
       }
     } else {
       first_frame = false;
@@ -707,8 +659,8 @@ bool Estimator::applyMarginalizationStrategy(
     for (size_t r = 0; r < residuals.size(); ++r) {
       if(std::dynamic_pointer_cast<ceres::PoseError>(
            residuals[r].errorInterfacePtr)){ // avoids linearising initial pose error
-				mapPtr_->removeResidualBlock(residuals[r].residualBlockId);
-				reDoFixation = true;
+                                mapPtr_->removeResidualBlock(residuals[r].residualBlockId);
+                                reDoFixation = true;
         continue;
       }
       std::shared_ptr<ceres::ReprojectionErrorBase> reprojectionError =
@@ -892,17 +844,17 @@ bool Estimator::applyMarginalizationStrategy(
   if (!marginalizationResidualId_)
     return false;
   }
-	
-	if(reDoFixation){
-	  // finally fix the first pose properly
-		//mapPtr_->resetParameterization(statesMap_.begin()->first, ceres::Map::Pose3d);
-		okvis::kinematics::Transformation T_WS_0;
-		get_T_WS(statesMap_.begin()->first, T_WS_0);
-	  Eigen::Matrix<double,6,6> information = Eigen::Matrix<double,6,6>::Zero();
-	  information(5,5) = 1.0e14; information(0,0) = 1.0e14; information(1,1) = 1.0e14; information(2,2) = 1.0e14;
-	  std::shared_ptr<ceres::PoseError > poseError(new ceres::PoseError(T_WS_0, information));
-	  mapPtr_->addResidualBlock(poseError,NULL,mapPtr_->parameterBlockPtr(statesMap_.begin()->first));
-	}
+        
+        if(reDoFixation){
+          // finally fix the first pose properly
+                //mapPtr_->resetParameterization(statesMap_.begin()->first, ceres::Map::Pose3d);
+                okvis::kinematics::Transformation T_WS_0;
+                get_T_WS(statesMap_.begin()->first, T_WS_0);
+          Eigen::Matrix<double,6,6> information = Eigen::Matrix<double,6,6>::Zero();
+          information(5,5) = 1.0e14; information(0,0) = 1.0e14; information(1,1) = 1.0e14; information(2,2) = 1.0e14;
+          std::shared_ptr<ceres::PoseError > poseError(new ceres::PoseError(T_WS_0, information));
+          mapPtr_->addResidualBlock(poseError,NULL,mapPtr_->parameterBlockPtr(statesMap_.begin()->first));
+        }
 
   return true;
 }
@@ -1211,7 +1163,7 @@ bool Estimator::getAllPoseInformation(Eigen::MatrixXd & I, bool includeSpeedAndB
     matSize += 6;
     if (includeSpeedAndBias && isInImuWindow(state.second.id)) {
       block_ids.push_back(state.second.sensors.at(SensorStates::Imu).at(0)
-	  .at(ImuSensorStates::SpeedAndBias).id);
+          .at(ImuSensorStates::SpeedAndBias).id);
       matSize += 9;
     }
   }
@@ -1237,7 +1189,7 @@ bool Estimator::getAllPoseUncertainties(std::vector<okvis::Time> & ts,
     matSize += 6;
     if (includeSpeedAndBias && isInImuWindow(state.second.id)) {
       block_ids.push_back(state.second.sensors.at(SensorStates::Imu).at(0)
-	  .at(ImuSensorStates::SpeedAndBias).id);
+          .at(ImuSensorStates::SpeedAndBias).id);
       matSize += 9;
     }
   }
