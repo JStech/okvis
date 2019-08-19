@@ -482,6 +482,13 @@ void Estimator::keyframeDecision() {
       (nKF*6 + nIF*15 == I.rows()), "Wrong size information for n: " << n <<
       ", " << I.rows() << "x" << I.cols());
 
+  std::ofstream f;
+  f.open("t", std::ofstream::app);
+  f << s.str() << std::endl;
+  f << I << std::endl << std::endl;
+  f.close();
+  return;
+
   double sum = 0;
   for (size_t i = 0; i < 6; i++) {
     for (size_t j = 0; j < I.cols(); j++) {

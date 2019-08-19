@@ -49,6 +49,7 @@
 #include <okvis/FrameTypedefs.hpp>
 #include <okvis/assert_macros.hpp>
 #include <unordered_map>
+#include <unordered_set>
 #include <okvis/ceres/ErrorInterface.hpp>
 
 /// \brief okvis Main namespace of this package.
@@ -142,13 +143,20 @@ class Map {
    */
   bool getPoseUncertainty(uint64_t parameterBlockId, Eigen::Matrix<double, 6, 6> & P_T_WS);
 
+  bool poseInfoWithLandmarksMarginalized(
+      std::vector<uint64_t> poseParameterBlockIds,
+      std::vector<uint64_t> landmarkParameterBlockIds,
+      Eigen::MatrixXd &I);
+
   /**
    * @brief Obtain the information matrix for any set of blocks
    * @param[in] parameterBlockIds vector of parameter block IDs of interest.
+   * @param[in] marginalizeBlockIds vector of parameter block IDs to marginalize.
    * @param[out] I the output information matrix.
    */
   bool getInformation(std::vector<uint64_t> parameterBlockIds,
-      Eigen::Ref<Eigen::MatrixXd> I, std::vector<size_t> *parIdx=NULL);
+      std::vector<uint64_t> marginalizeBlockIds,
+      Eigen::Ref<Eigen::MatrixXd> I);
 
   /**
    * @brief Obtain the covariance matrix for any set of blocks

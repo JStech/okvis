@@ -61,17 +61,6 @@
 
 #include <boost/filesystem.hpp>
 
-std::ofstream unc_file("t_unc.txt");
-
-void fullUncertaintyCallback(
-      const std::vector<okvis::Time> & ts,
-      const Eigen::MatrixXd & P) {
-  for (auto t : ts) {
-    unc_file << t << ", ";
-  }
-  unc_file << std::endl << P << std::endl << std::endl;
-}
-
 class PoseViewer
 {
  public:
@@ -238,7 +227,6 @@ int main(int argc, char **argv)
       std::bind(&PoseViewer::publishFullStateAsCallback, &poseViewer,
                 std::placeholders::_1, std::placeholders::_2,
                 std::placeholders::_3, std::placeholders::_4));
-  okvis_estimator.setFullUncertaintyCallback(fullUncertaintyCallback);
 
   okvis_estimator.setBlocking(true);
 
