@@ -486,15 +486,17 @@ void Estimator::keyframeDecision() {
     nKF << ", frames " << s.str() << ", newKfID " << newKfID;
 
   if (!dropKF_) {
-    if (newKfID > 0) statesMap_.at(newKfID).isKeyframe = true;
+    if (newKfID > 0) {
+      statesMap_.at(newKfID).isKeyframe = true;
+    }
     return;
   }
 
   Eigen::MatrixXd I;
-  getAllPoseInformation(I);
+  getAllPoseInformation(I, false);
   OKVIS_ASSERT_TRUE_DBG(Exception,
-      (nKF*6 + nIF*15 == static_cast<size_t>(I.cols())) && 
-      (nKF*6 + nIF*15 == static_cast<size_t>(I.rows())),
+      (n*6 == static_cast<size_t>(I.cols())) && 
+      (n*6 == static_cast<size_t>(I.rows())),
       "Wrong size information for n: " << n << ", " << I.rows() << "x" <<
       I.cols());
 
@@ -503,37 +505,6 @@ void Estimator::keyframeDecision() {
   std::ofstream f;
   f.open("t", std::ofstream::app);
   f << "All pose info:" << std::endl << I << std::endl << std::endl;
-
-  // first marginalize the speed and bias
-  Eigen::VectorXd P(I.rows());
-  for (size_t i = 0; i < nKF; i++) {
-    for (size_t j = 0; j < 6; j++) {
-      // keyframe pose
-      P[i*6 + j] = i*6 + j;
-    }
-  }
-  for (size_t i = 0; i < nIF; i++) {
-    for (size_t j = 0; j < 6; j++) {
-      // IMU frame pose
-      P[nKF*6 + i*6 + j] = nKF*6 + i*15 + 9 + j;
-    }
-    for (size_t j = 0; j < 9; j++) {
-      // IMU frame speed and bias
-      P[nKF*6 + nIF*6 + i*9 + j] = nKF*6 + i*15 + j;
-    }
-  }
-
-  I = P.asPermutation().transpose()*I*P.asPermutation();
-  I = I.topLeftCorner(6*n, 6*n) - I.topRightCorner(6*n, 9*nIF) *
-    I.bottomRightCorner(9*nIF, 9*nIF).inverse() *
-    I.bottomLeftCorner(9*nIF, 6*n);
-
-  if (!(I.bottomRightCorner(9*nIF, 9*nIF).inverse() * I.bottomRightCorner(9*nIF,
-	  9*nIF)).isApprox(Eigen::MatrixXd::Identity(9*nIF, 9*nIF))) {
-    LOG(WARNING) << "Badly conditioned speed and bias marginalization";
-  }
-
-  CHECK_PSD(I);
 
   // Set up information matrices for new and old keyframe options
   Eigen::MatrixXd I_new(6*(n-1), 6*(n-1));

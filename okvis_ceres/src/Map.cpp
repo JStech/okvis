@@ -42,6 +42,7 @@
 #include <ceres/ordered_groups.h>
 #include <okvis/ceres/HomogeneousPointParameterBlock.hpp>
 #include <okvis/ceres/MarginalizationError.hpp>
+#include <okvis/ceres/PoseError.hpp>
 #include <okvis/ceres/ReprojectionErrorBase.hpp>
 
 #define CHECK_PSD(m) {\
@@ -210,14 +211,9 @@ bool Map::poseInfoWithLandmarksMarginalized(
     J_size.push_back(id2ParameterBlock_Map_.find(parBlk_id)->second->minimalDimension());
     J_pos.push_back(J_pos.back() + J_size.back());
   }
+  // sort residuals so they are grouped by landmark
   std::sort(res.begin(), res.end(),
       [this, &landmarkParameterBlockIds](const ResidualBlockSpec a, ResidualBlockSpec b) -> bool {
-        //ParameterBlockCollection pars_a = parameters(a.residualBlockId);
-        //ParameterBlockCollection pars_b = parameters(b.residualBlockId);
-        //LOG(INFO) << pars_a.size() << " " << pars_b.size();
-        //for (size_t i = 0; i < pars_b.size(); i++) {
-          //LOG(INFO) << pars_b[i].first << ": " << pars_b[i].second->typeInfo();
-        //}
         std::shared_ptr<ceres::ReprojectionErrorBase> rpjErr_a =
         std::dynamic_pointer_cast<ceres::ReprojectionErrorBase>(
             a.errorInterfacePtr);
@@ -252,6 +248,11 @@ bool Map::poseInfoWithLandmarksMarginalized(
 
   // calculate Jacobians
   for (size_t i = 0; i < res.size(); ++i) {
+
+    // skip PoseError, because it just causes problems later
+    if (std::dynamic_pointer_cast<ceres::PoseError>(res[i].errorInterfacePtr)) {
+      continue;
+    }
 
     // parameters:
     ParameterBlockCollection pars = parameters(res[i].residualBlockId);
