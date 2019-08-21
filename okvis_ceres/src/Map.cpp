@@ -44,6 +44,15 @@
 #include <okvis/ceres/MarginalizationError.hpp>
 #include <okvis/ceres/ReprojectionErrorBase.hpp>
 
+#define CHECK_PSD(m) {\
+  Eigen::LDLT<Eigen::MatrixXd> chol(m);\
+  if (chol.info() == Eigen::NumericalIssue) {\
+    LOG(WARNING) << "Numerical issue checking if matrix is PSD";\
+  } else if (!chol.isPositive()) {\
+    LOG(WARNING) << "Matrix not PSD";\
+  }\
+}
+
 /// \brief okvis Main namespace of this package.
 namespace okvis {
 /// \brief ceres Namespace for ceres-related functionality implemented in okvis.
@@ -183,130 +192,172 @@ bool Map::poseInfoWithLandmarksMarginalized(
     std::vector<uint64_t> poseParameterBlockIds,
     std::vector<uint64_t> landmarkParameterBlockIds,
     Eigen::MatrixXd &I) {
+
   I.setZero();
   size_t N_p = poseParameterBlockIds.size();
   size_t N_l = landmarkParameterBlockIds.size();
   std::vector<size_t> J_size;
-  std::vector<size_t> J_pos = {0};
+  std::vector<size_t> J_pos = {3};
 
   // collect all the residuals, prep J_size and J_pos
-  std::unordered_set<::ceres::ResidualBlockId> res;
-  std::unordered_multimap<uint64_t, uint64_t> margParmToRes_Map;
+  ResidualBlockCollection res;
   for (auto parBlk_id : poseParameterBlockIds) {
     if (!parameterBlockExists(parBlk_id)) {
-      LOG(FATAL) << "Missing parameter block; (debugging--probably should remove this)";
       return false;
     }
-    for (ResidualBlockSpec r: residuals(parBlk_id)) {
-      res.insert(r.residualBlockId);
-      bool found = false;
-      for (auto p: parameters(r.residualBlockId)) {
-        auto t = std::find(landmarkParameterBlockIds.begin(), landmarkParameterBlockIds.end(), p.second->id());
-        if (t != landmarkParameterBlockIds.end()) {
-          if (found) {
-            LOG(FATAL) << "Can't marginalize multiple parameters from same residual";
-          }
-          found = true;
-          margParmToRes_Map.insert(std::make_pair(p.second->id(), r.residualBlockId));
+    ResidualBlockCollection t = residuals(parBlk_id);
+    res.insert(res.end(), t.begin(), t.end());
+    J_size.push_back(id2ParameterBlock_Map_.find(parBlk_id)->second->minimalDimension());
+    J_pos.push_back(J_pos.back() + J_size.back());
+  }
+  std::sort(res.begin(), res.end(),
+      [this, &landmarkParameterBlockIds](const ResidualBlockSpec a, ResidualBlockSpec b) -> bool {
+        //ParameterBlockCollection pars_a = parameters(a.residualBlockId);
+        //ParameterBlockCollection pars_b = parameters(b.residualBlockId);
+        //LOG(INFO) << pars_a.size() << " " << pars_b.size();
+        //for (size_t i = 0; i < pars_b.size(); i++) {
+          //LOG(INFO) << pars_b[i].first << ": " << pars_b[i].second->typeInfo();
+        //}
+        std::shared_ptr<ceres::ReprojectionErrorBase> rpjErr_a =
+        std::dynamic_pointer_cast<ceres::ReprojectionErrorBase>(
+            a.errorInterfacePtr);
+        std::shared_ptr<ceres::ReprojectionErrorBase> rpjErr_b =
+        std::dynamic_pointer_cast<ceres::ReprojectionErrorBase>(
+            b.errorInterfacePtr);
+        if (rpjErr_a && rpjErr_b) {
+          OKVIS_ASSERT_TRUE(Exception, parameters(a.residualBlockId).at(1).second->minimalDimension() ==
+              parameters(b.residualBlockId).at(1).second->minimalDimension() &&
+              parameters(a.residualBlockId).at(1).second->minimalDimension() == 3,
+              "Wrong parameter. A:" << std::endl << rpjErr_a->typeInfo() <<
+              std::endl << "B:" << std::endl << rpjErr_b->typeInfo());
+          return parameters(a.residualBlockId).at(1).first < parameters(b.residualBlockId).at(1).first;
+        } else if (rpjErr_a) {
+          OKVIS_ASSERT_TRUE(Exception, parameters(a.residualBlockId).at(1).second->minimalDimension() == 3,
+              "Wrong parameter");
+          return true;
+        }
+        return false;
+      });
+
+  size_t J_n = J_pos.back()-3;
+  OKVIS_ASSERT_TRUE(Exception,
+      (static_cast<int32_t>(J_n) == I.rows()) && (static_cast<int32_t>(J_n) == I.cols()),
+      "Information wrong size: " << J_n << " vs " << I.rows() << "x" << I.cols());
+
+  double s2 = 0;
+  uint32_t m = 0;
+
+  uint64_t curr_lm = 0;
+  Eigen::MatrixXd I_marg(3, J_n + 3);
+
+  // calculate Jacobians
+  for (size_t i = 0; i < res.size(); ++i) {
+
+    // parameters:
+    ParameterBlockCollection pars = parameters(res[i].residualBlockId);
+
+    double** parametersRaw = new double*[pars.size()];
+    size_t res_n = res[i].errorInterfacePtr->residualDim();
+    Eigen::VectorXd residualsEigen(res_n);
+    double* residualsRaw = residualsEigen.data();
+
+    double** jacobiansRaw = new double*[pars.size()];
+    std::vector<
+        Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>,
+        Eigen::aligned_allocator<
+            Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
+                Eigen::RowMajor> > > jacobiansEigen(pars.size());
+
+    double** jacobiansMinimalRaw = new double*[pars.size()];
+    std::vector<
+        Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>,
+        Eigen::aligned_allocator<
+            Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
+                Eigen::RowMajor> > > jacobiansMinimalEigen(pars.size());
+
+    // collect relevant Jacobian blocks
+    std::vector<int32_t> J_idx(N_p);
+    std::fill(J_idx.begin(), J_idx.end(), -1);
+    int J_lm_i = -1;
+
+    uint64_t this_lm = 0;
+    for (size_t j = 0; j < pars.size(); j++) {
+      parametersRaw[j] = pars[j].second->parameters();
+      jacobiansEigen[j].resize(res[i].errorInterfacePtr->residualDim(),
+                               pars[j].second->dimension());
+      jacobiansRaw[j] = jacobiansEigen[j].data();
+      jacobiansMinimalEigen[j].resize(res[i].errorInterfacePtr->residualDim(),
+                                      pars[j].second->minimalDimension());
+      jacobiansMinimalRaw[j] = jacobiansMinimalEigen[j].data();
+
+      for (size_t jj = 0; jj < N_p; jj++) {
+        if (pars[j].second->id() == poseParameterBlockIds[jj]) {
+          J_idx[jj] = j;
         }
       }
-    }
-    size_t parBlkSize = id2ParameterBlock_Map_.find(parBlk_id)->second->minimalDimension();
-    J_size.push_back(parBlkSize);
-    J_pos.push_back(J_pos.back() + parBlkSize);
-  }
-  size_t J_n = J_pos.back();
-  OKVIS_ASSERT_TRUE(Exception, (J_n == I.rows()) && (J_n == I.cols()),
-      "Information wrong size: " << J_n << " vs " << I.rows() << "x" <<
-      I.cols());
 
-  // loop over landmarks, collecting marginalization info into I_marg
-  for (auto lmId : landmarkParameterBlockIds) {
-    Eigen::MatrixXd I_marg(3, J_n+3);
-    I_marg.setZero();
-    auto lm_range = margParmToRes_Map.equal_range(lmId);
-    for (auto it = lm_range.first; it != lm_range.second; it++) {
-      uint64_t margBlkId = it->first;
-      uint64_t resBlkId = it->second;
-      ResidualBlockSpec resBlk = Id2ResidualBlock_Multimap.find(resBlkId);
-
-      // parameters:
-      ParameterBlockCollection pars = parameters(resBlkId);
-
-      double** parametersRaw = new double*[pars.size()];
-      size_t res_n = resBlk.errorInterfacePtr->residualDim();
-      Eigen::VectorXd residualsEigen(res_n);
-      double* residualsRaw = residualsEigen.data();
-
-      double** jacobiansRaw = new double*[pars.size()];
-      std::vector<
-        Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>,
-        Eigen::aligned_allocator<
-          Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
-        Eigen::RowMajor> > > jacobiansEigen(pars.size());
-
-      double** jacobiansMinimalRaw = new double*[pars.size()];
-      std::vector<
-        Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>,
-        Eigen::aligned_allocator<
-          Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
-        Eigen::RowMajor> > > jacobiansMinimalEigen(pars.size());
-
-      // collect relevant Jacobian blocks
-      std::vector<int32_t> J_idx(N);
-      std::fill(J_idx.begin(), J_idx.end(), -1);
-      int32_t J_lm_i=-1;
-      for (size_t j = 0; j < pars.size(); j++) {
-        parametersRaw[j] = pars[j].second->parameters();
-        jacobiansEigen[j].resize(resBlk.errorInterfacePtr->residualDim(),
-            pars[j].second->dimension());
-        jacobiansRaw[j] = jacobiansEigen[j].data();
-        jacobiansMinimalEigen[j].resize(resBlk.errorInterfacePtr->residualDim(),
-            pars[j].second->minimalDimension());
-        jacobiansMinimalRaw[j] = jacobiansMinimalEigen[j].data();
-        for (size_t jj = 0; jj < N; jj++) {
-          if (pars[j].second->id() == parameterBlockIds[jj]) {
-            J_idx[jj] = j;
-          } 
-        }
-        if (pars[j].second->id() == margBlkId) {
+      for (size_t jj = 0; jj < N_l; jj++) {
+        if (pars[j].second->id() == landmarkParameterBlockIds[jj]) {
           J_lm_i = j;
+          this_lm = pars[j].second->id();
         }
       }
-
-      // evaluate residual block
-      resBlk.errorInterfacePtr->EvaluateWithMinimalJacobians(parametersRaw,
-          residualsRaw,
-          jacobiansRaw,
-          jacobiansMinimalRaw);
-
-      OKVIS_ASSERT_TRUE(Exception, J_lm_i > 0, "Didn't find promised parameter "
-          "to marginalize");
-      Eigen::MatrixXd J_stacked = Eigen::MatrixXd::Zero(res_n, J_n + 3);
-      J_stacked.block(0, 0, res_n, 3) = jacobiansMinimalEigen(J_lm_i);
-      for (size_t j = 0; j < N; j++) {
-        if (J_idx[j] > 0) {
-          J_stacked.block(0, 3+J_pos[j], res_n, J_size[j]) = jacobiansMinimalEigen[J_idx[j]];
-        }
-      }
-      Eigen::MatrixXd I_t = J_stacked.transpose() * J_stacked;
-      I_marg += I_t.topLeftCorner(3, J_n+3);
-      I += I_t.bottomRightCorner(J_n, J_n);
     }
 
-    // Schur complement to marginalize landmark
-    // TODO: check that matrix is invertible
-    I -= I_marg.bottomRightCorner(3, J_n).transpose() *
-      I_marg.topLeftCorner(3, 3).inverse() *
-      I_marg.bottomRightCorner(3, J_n);
+    if (curr_lm != this_lm) {
+      curr_lm = this_lm;
+      // marginalize landmark and reset
+      Eigen::SelfAdjointEigenSolver< Eigen::Matrix3d > saes(I_marg.topLeftCorner(3, 3));
+      Eigen::Vector3d eigenvalues = saes.eigenvalues();
+      if (eigenvalues[0] > 1e-2) {
+        I -= I_marg.bottomRightCorner(3, J_n).transpose() *
+          I_marg.topLeftCorner(3, 3).inverse() *
+          I_marg.bottomRightCorner(3, J_n);
+      }
+      I_marg = Eigen::MatrixXd::Zero(3, J_n + 3);
+    }
+
+    // evaluate residual block
+    res[i].errorInterfacePtr->EvaluateWithMinimalJacobians(parametersRaw,
+                                                           residualsRaw,
+                                                           jacobiansRaw,
+                                                           jacobiansMinimalRaw);
+    s2 += residualsEigen.transpose() * residualsEigen;
+    m += residualsEigen.size();
+
+    // stacked Jacobian is res_n rows (# of residuals) by J_n cols (# of
+    // parameters, in minimal rep)
+    Eigen::MatrixXd J_stacked = Eigen::MatrixXd::Zero(res_n, J_n + 3);
+    Eigen::MatrixXd J_l = Eigen::MatrixXd::Zero(res_n, 3);
+    // piece together relevant parts of the Jacobian
+    for (size_t j = 0; j < N_p; j++) {
+      if (J_idx[j] >= 0) {
+        J_stacked.block(0, J_pos[j], res_n, J_size[j]) = jacobiansMinimalEigen[J_idx[j]];
+      }
+    }
+    if (J_lm_i > 0) {
+      J_stacked.block(0, 0, res_n, 3) = jacobiansMinimalEigen[J_lm_i];
+    }
+
+    Eigen::MatrixXd I_t = J_stacked.transpose() * J_stacked;
+
+    I += I_t.bottomRightCorner(J_n, J_n);
+    I_marg += I_t.topLeftCorner(3, J_n+3);
+
+    // cleanup
+    delete[] parametersRaw;
+    delete[] jacobiansRaw;
+    delete[] jacobiansMinimalRaw;
   }
-  // TODO: handle residuals with no parameters to marginalize
+  I = ((m - J_n)/s2) * I;
+  CHECK_PSD(I);
+ 
   return true;
 }
 
 // Return information for blocks in vector parameterBlockIds
 bool Map::getInformation(std::vector<uint64_t> parameterBlockIds,
-    std::vector<uint64_t> marginalizeBlockIds, Eigen::Ref<Eigen::MatrixXd> I) {
+    Eigen::Ref<Eigen::MatrixXd> I) {
   I.setZero();
   size_t N = parameterBlockIds.size();
   std::vector<size_t> J_size;
@@ -324,7 +375,7 @@ bool Map::getInformation(std::vector<uint64_t> parameterBlockIds,
     J_pos.push_back(J_pos.back() + J_size.back());
   }
   size_t J_n = J_pos.back();
-  OKVIS_ASSERT_TRUE(Exception, (J_n == I.rows()) && (J_n == I.cols()),
+  OKVIS_ASSERT_TRUE(Exception, (static_cast<int32_t>(J_n) == I.rows()) && (static_cast<int32_t>(J_n) == I.cols()),
       "Information wrong size: " << J_n << " vs " << I.rows() << "x" <<
       I.cols());
 
@@ -388,7 +439,7 @@ bool Map::getInformation(std::vector<uint64_t> parameterBlockIds,
     Eigen::MatrixXd J_l = Eigen::MatrixXd::Zero(res_n, 3);
     // piece together relevant parts of the Jacobian
     for (size_t j = 0; j < N; j++) {
-      if (J_idx[j] > 0) {
+      if (J_idx[j] >= 0) {
         J_stacked.block(0, J_pos[j], res_n, J_size[j]) = jacobiansMinimalEigen[J_idx[j]];
       }
     }
@@ -422,7 +473,7 @@ bool Map::getUncertainty(std::vector<uint64_t> parameterBlockIds,
     LOG(INFO) << "Full rank Hessian: " << LU.rank() << "<" << P.rows();
     P = P.inverse();
   }
-  for (size_t i = 0; i < P.rows(); i++) {
+  for (int32_t i = 0; i < P.rows(); i++) {
     OKVIS_ASSERT_TRUE(Exception, P(i, i) >= 0, "Bad covariance");
   }
   return true;

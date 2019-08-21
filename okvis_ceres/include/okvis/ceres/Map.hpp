@@ -50,6 +50,7 @@
 #include <okvis/assert_macros.hpp>
 #include <unordered_map>
 #include <unordered_set>
+#include <algorithm>
 #include <okvis/ceres/ErrorInterface.hpp>
 
 /// \brief okvis Main namespace of this package.
@@ -155,7 +156,6 @@ class Map {
    * @param[out] I the output information matrix.
    */
   bool getInformation(std::vector<uint64_t> parameterBlockIds,
-      std::vector<uint64_t> marginalizeBlockIds,
       Eigen::Ref<Eigen::MatrixXd> I);
 
   /**

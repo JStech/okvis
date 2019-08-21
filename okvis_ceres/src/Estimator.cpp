@@ -49,6 +49,15 @@
 #include <okvis/MultiFrame.hpp>
 #include <okvis/assert_macros.hpp>
 
+#define CHECK_PSD(m) {\
+  Eigen::LDLT<Eigen::MatrixXd> chol(m);\
+  if (chol.info() == Eigen::NumericalIssue) {\
+    LOG(WARNING) << "Numerical issue checking if matrix is PSD";\
+  } else if (!chol.isPositive()) {\
+    LOG(WARNING) << "Matrix not PSD";\
+  }\
+}
+
 /// \brief okvis Main namespace of this package.
 namespace okvis {
 
@@ -440,6 +449,11 @@ double Estimator::kfInfo(Eigen::MatrixXd I) {
   }
   Eigen::MatrixXd C = I.bottomRightCorner(n-6, n-6) - I.bottomLeftCorner(n-6, 6)
     * I.topLeftCorner(6, 6).inverse() * I.topRightCorner(6, n-6);
+  std::ofstream f;
+  f.open("t", std::ofstream::app);
+  f << "C in kfInfo:" << std::endl << C << std::endl << std::endl;
+  f.close();
+  CHECK_PSD(C);
   Eigen::LDLT<Eigen::MatrixXd> chol(C);
   Eigen::VectorXd d = chol.vectorD();
   return d.array().log().sum();
@@ -478,28 +492,17 @@ void Estimator::keyframeDecision() {
 
   Eigen::MatrixXd I;
   getAllPoseInformation(I);
-  OKVIS_ASSERT_TRUE(Exception, (nKF*6 + nIF*15 == I.cols()) && 
-      (nKF*6 + nIF*15 == I.rows()), "Wrong size information for n: " << n <<
-      ", " << I.rows() << "x" << I.cols());
+  OKVIS_ASSERT_TRUE_DBG(Exception,
+      (nKF*6 + nIF*15 == static_cast<size_t>(I.cols())) && 
+      (nKF*6 + nIF*15 == static_cast<size_t>(I.rows())),
+      "Wrong size information for n: " << n << ", " << I.rows() << "x" <<
+      I.cols());
+
+  CHECK_PSD(I);
 
   std::ofstream f;
   f.open("t", std::ofstream::app);
-  f << s.str() << std::endl;
-  f << I << std::endl << std::endl;
-  f.close();
-  return;
-
-  double sum = 0;
-  for (size_t i = 0; i < 6; i++) {
-    for (size_t j = 0; j < I.cols(); j++) {
-      sum += fabs(I(i, j));
-    }
-  }
-  if (sum == 0.) {
-    LOG(WARNING) << "all-zero pose information";
-    if (newKfID > 0) statesMap_.at(newKfID).isKeyframe = true;
-    return;
-  }
+  f << "All pose info:" << std::endl << I << std::endl << std::endl;
 
   // first marginalize the speed and bias
   Eigen::VectorXd P(I.rows());
@@ -524,6 +527,13 @@ void Estimator::keyframeDecision() {
   I = I.topLeftCorner(6*n, 6*n) - I.topRightCorner(6*n, 9*nIF) *
     I.bottomRightCorner(9*nIF, 9*nIF).inverse() *
     I.bottomLeftCorner(9*nIF, 6*n);
+
+  if (!(I.bottomRightCorner(9*nIF, 9*nIF).inverse() * I.bottomRightCorner(9*nIF,
+	  9*nIF)).isApprox(Eigen::MatrixXd::Identity(9*nIF, 9*nIF))) {
+    LOG(WARNING) << "Badly conditioned speed and bias marginalization";
+  }
+
+  CHECK_PSD(I);
 
   // Set up information matrices for new and old keyframe options
   Eigen::MatrixXd I_new(6*(n-1), 6*(n-1));
@@ -551,13 +561,22 @@ void Estimator::keyframeDecision() {
   I_old.block(c_i[2], c_i[1], c_s[2], c_s[1]) = I.block(b_i[3], b_i[1], b_s[3], b_s[1]);
   I_old.block(c_i[2], c_i[2], c_s[2], c_s[2]) = I.block(b_i[3], b_i[3], b_s[3], b_s[3]);
 
-  double oldKfScore = kfInfo(I_old);
+  CHECK_PSD(I_new);
+  CHECK_PSD(I_old);
+
+  f << "Permuted I_new:" << std::endl << I_new << std::endl << std::endl;
+  f << "Permuted I_old:" << std::endl << I_old << std::endl << std::endl;
+  f.close();
   double newKfScore = kfInfo(I_new);
+  double oldKfScore = kfInfo(I_old);
+  f.open("t", std::ofstream::app);
+  f << oldKfScore << " " << newKfScore << std::endl << std::endl << std::endl;
+  f.close();
 
   LOG(INFO) << "Old: " << oldKfScore << ", new: " << newKfScore;
-  if (newKfScore > oldKfScore) {
+  if (newKfScore > oldKfScore && newKfID > 0) {
     LOG(INFO) << "New keyframe: " << newKfID << ", " << statesMap_.at(newKfID).timestamp;
-    statesMap_.at(newKfID).isKeyframe = true;
+    // statesMap_.at(newKfID).isKeyframe = true;
   }
 }
 
@@ -1211,21 +1230,26 @@ bool Estimator::getStateUncertainty(Eigen::Matrix<double,15,15> & P) const {
 
 bool Estimator::getAllPoseInformation(Eigen::MatrixXd & I, bool includeSpeedAndBias) const {
   I.setZero();
-  std::vector<uint64_t> block_ids;
+  std::vector<uint64_t> pose_ids;
   uint32_t matSize = 0;
   for (auto state : statesMap_) {
-    block_ids.push_back(state.second.id);
+    pose_ids.push_back(state.second.id);
     matSize += 6;
     if (includeSpeedAndBias && isInImuWindow(state.second.id)) {
-      block_ids.push_back(state.second.sensors.at(SensorStates::Imu).at(0)
+      pose_ids.push_back(state.second.sensors.at(SensorStates::Imu).at(0)
 	  .at(ImuSensorStates::SpeedAndBias).id);
       matSize += 9;
     }
   }
 
+  std::vector<uint64_t> landmark_ids;
+  for (auto lm : landmarksMap_) {
+    landmark_ids.push_back(lm.second.id);
+  }
+
   // TODO: get this to work without the temporary matrix/coping
   Eigen::MatrixXd t(matSize, matSize);
-  bool r = mapPtr_->getInformation(block_ids, t);
+  bool r = mapPtr_->poseInfoWithLandmarksMarginalized(pose_ids, landmark_ids, t);
   if (r) {
     I = t;
   }
