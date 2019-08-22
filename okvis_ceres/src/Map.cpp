@@ -244,13 +244,13 @@ bool Map::poseInfoWithLandmarksMarginalized(
   uint32_t m = 0;
 
   uint64_t curr_lm = 0;
-  Eigen::MatrixXd I_marg(3, J_n + 3);
+  Eigen::MatrixXd I_marg(J_n + 3, J_n + 3);
 
   // calculate Jacobians
   for (size_t i = 0; i < res.size(); ++i) {
 
-    // skip PoseError, because it just causes problems later
-    if (std::dynamic_pointer_cast<ceres::PoseError>(res[i].errorInterfacePtr)) {
+    // only interested in reprojection error
+    if (!std::dynamic_pointer_cast<ceres::ReprojectionErrorBase>(res[i].errorInterfacePtr)) {
       continue;
     }
 
@@ -308,14 +308,15 @@ bool Map::poseInfoWithLandmarksMarginalized(
     if (curr_lm != this_lm) {
       curr_lm = this_lm;
       // marginalize landmark and reset
-      Eigen::SelfAdjointEigenSolver< Eigen::Matrix3d > saes(I_marg.topLeftCorner(3, 3));
-      Eigen::Vector3d eigenvalues = saes.eigenvalues();
-      if (eigenvalues[0] > 1e-2) {
-        I -= I_marg.bottomRightCorner(3, J_n).transpose() *
+      Eigen::Matrix3d inv = I_marg.topLeftCorner(3, 3).inverse();
+      if ((I_marg.topLeftCorner(3, 3) * inv)
+          .isApprox(Eigen::Matrix3d::Identity(), 1e-2)) {
+        I += I_marg.bottomRightCorner(J_n, J_n ) -
+          I_marg.bottomLeftCorner(J_n, 3) *
           I_marg.topLeftCorner(3, 3).inverse() *
-          I_marg.bottomRightCorner(3, J_n);
+          I_marg.topRightCorner(3, J_n);
       }
-      I_marg = Eigen::MatrixXd::Zero(3, J_n + 3);
+      I_marg = Eigen::MatrixXd::Zero(J_n + 3, J_n + 3);
     }
 
     // evaluate residual block
@@ -340,18 +341,25 @@ bool Map::poseInfoWithLandmarksMarginalized(
       J_stacked.block(0, 0, res_n, 3) = jacobiansMinimalEigen[J_lm_i];
     }
 
-    Eigen::MatrixXd I_t = J_stacked.transpose() * J_stacked;
-
-    I += I_t.bottomRightCorner(J_n, J_n);
-    I_marg += I_t.topLeftCorner(3, J_n+3);
+    I_marg += J_stacked.transpose() * J_stacked;
 
     // cleanup
     delete[] parametersRaw;
     delete[] jacobiansRaw;
     delete[] jacobiansMinimalRaw;
   }
+
+  if (curr_lm > 0) {
+    Eigen::SelfAdjointEigenSolver< Eigen::Matrix3d > saes(I_marg.topLeftCorner(3, 3));
+    Eigen::Vector3d eigenvalues = saes.eigenvalues();
+    if (eigenvalues[0] > 1e-12) {
+      I += I_marg.bottomRightCorner(J_n, J_n ) -
+        I_marg.bottomLeftCorner(J_n, 3) *
+        I_marg.topLeftCorner(3, 3).inverse() *
+        I_marg.topRightCorner(3, J_n);
+    }
+  }
   I = ((m - J_n)/s2) * I;
-  CHECK_PSD(I);
  
   return true;
 }

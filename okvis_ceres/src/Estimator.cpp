@@ -440,7 +440,7 @@ bool vectorContains(const std::vector<T> & vector, const T & query){
 
 
 // marginalize out (Schur complement) first pose, find log det of remaining
-// information
+// information for final n poses
 double Estimator::kfInfo(Eigen::MatrixXd I) {
   size_t n = I.rows();
   Eigen::FullPivLU<Eigen::MatrixXd> LU(I.topLeftCorner(6, 6));
@@ -449,10 +449,6 @@ double Estimator::kfInfo(Eigen::MatrixXd I) {
   }
   Eigen::MatrixXd C = I.bottomRightCorner(n-6, n-6) - I.bottomLeftCorner(n-6, 6)
     * I.topLeftCorner(6, 6).inverse() * I.topRightCorner(6, n-6);
-  std::ofstream f;
-  f.open("t", std::ofstream::app);
-  f << "C in kfInfo:" << std::endl << C << std::endl << std::endl;
-  f.close();
   CHECK_PSD(C);
   Eigen::LDLT<Eigen::MatrixXd> chol(C);
   Eigen::VectorXd d = chol.vectorD();
@@ -482,8 +478,6 @@ void Estimator::keyframeDecision() {
     }
   }
   n = nIF + nKF;
-  LOG(INFO) << "Keyframe decision: " << (dropKF_ ? "" : "no " ) << "drop, n " << n << ", nIF " << nIF << ", nKF " <<
-    nKF << ", frames " << s.str() << ", newKfID " << newKfID;
 
   if (!dropKF_) {
     if (newKfID > 0) {
@@ -502,9 +496,10 @@ void Estimator::keyframeDecision() {
 
   CHECK_PSD(I);
 
-  std::ofstream f;
-  f.open("t", std::ofstream::app);
-  f << "All pose info:" << std::endl << I << std::endl << std::endl;
+  // std::ofstream f;
+  // f.open("t", std::ofstream::app);
+  // f << I << std::endl;
+  // f.close();
 
   // Set up information matrices for new and old keyframe options
   Eigen::MatrixXd I_new(6*(n-1), 6*(n-1));
@@ -535,19 +530,12 @@ void Estimator::keyframeDecision() {
   CHECK_PSD(I_new);
   CHECK_PSD(I_old);
 
-  f << "Permuted I_new:" << std::endl << I_new << std::endl << std::endl;
-  f << "Permuted I_old:" << std::endl << I_old << std::endl << std::endl;
-  f.close();
   double newKfScore = kfInfo(I_new);
   double oldKfScore = kfInfo(I_old);
-  f.open("t", std::ofstream::app);
-  f << oldKfScore << " " << newKfScore << std::endl << std::endl << std::endl;
-  f.close();
 
-  LOG(INFO) << "Old: " << oldKfScore << ", new: " << newKfScore;
+  LOG(INFO) << ((newKfScore > oldKfScore) ? "NEW " : "    ") << oldKfScore << " vs " << newKfScore;
   if (newKfScore > oldKfScore && newKfID > 0) {
-    LOG(INFO) << "New keyframe: " << newKfID << ", " << statesMap_.at(newKfID).timestamp;
-    // statesMap_.at(newKfID).isKeyframe = true;
+    statesMap_.at(newKfID).isKeyframe = true;
   }
 }
 
