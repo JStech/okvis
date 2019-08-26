@@ -357,9 +357,6 @@ class Estimator : public VioBackendInterface
 
   bool getStateUncertainty(Eigen::Matrix<double,15,15> & P) const;
 
-  bool getAllPoseInformation(Eigen::MatrixXd & I,
-      bool includeSpeedAndBias=true) const;
-
   bool getAllPoseUncertainties(std::vector<okvis::Time> & ts,
       Eigen::MatrixXd & P, bool includeSpeedAndBias=true) const;
 

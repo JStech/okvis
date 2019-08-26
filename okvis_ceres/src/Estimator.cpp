@@ -49,12 +49,12 @@
 #include <okvis/MultiFrame.hpp>
 #include <okvis/assert_macros.hpp>
 
-#define CHECK_PSD(m) {\
+#define CHECK_PSD(m) if (true) {\
   Eigen::LDLT<Eigen::MatrixXd> chol(m);\
   if (chol.info() == Eigen::NumericalIssue) {\
     LOG(WARNING) << "Numerical issue checking if matrix is PSD";\
   } else if (!chol.isPositive()) {\
-    LOG(WARNING) << "Matrix not PSD";\
+    LOG(WARNING) << "Matrix not PSD: " #m;\
   }\
 }
 
@@ -442,15 +442,7 @@ bool vectorContains(const std::vector<T> & vector, const T & query){
 // marginalize out (Schur complement) first pose, find log det of remaining
 // information for final n poses
 double Estimator::kfInfo(Eigen::MatrixXd I) {
-  size_t n = I.rows();
-  Eigen::FullPivLU<Eigen::MatrixXd> LU(I.topLeftCorner(6, 6));
-  if (LU.rank() != 6) {
-    return 0.;
-  }
-  Eigen::MatrixXd C = I.bottomRightCorner(n-6, n-6) - I.bottomLeftCorner(n-6, 6)
-    * I.topLeftCorner(6, 6).inverse() * I.topRightCorner(6, n-6);
-  CHECK_PSD(C);
-  Eigen::LDLT<Eigen::MatrixXd> chol(C);
+  Eigen::LDLT<Eigen::MatrixXd> chol(I);
   Eigen::VectorXd d = chol.vectorD();
   return d.array().log().sum();
 }
@@ -460,72 +452,84 @@ double Estimator::kfInfo(Eigen::MatrixXd I) {
 // to use trial keyframe or keep the old one
 void Estimator::keyframeDecision() {
 
-  size_t n = 0;
-  size_t nIF = 0;
-  size_t nKF = 0;
-  uint64_t newKfID = 0;
-
-  std::ostringstream s;
+  std::vector<uint64_t> kfPoseParameterBlockIds;
+  std::vector<uint64_t> imuPoseParameterBlockIds;
   for (auto state : statesMap_) {
-    s << " " << state.first;
     if (isInImuWindow(state.second.id)) {
-      nIF++;
+      imuPoseParameterBlockIds.push_back(state.second.id);
     } else {
-      nKF++;
-      if (!statesMap_.at(state.first).isKeyframe) {
-	newKfID = state.first;
-      }
+      kfPoseParameterBlockIds.push_back(state.second.id);
     }
   }
-  n = nIF + nKF;
+
+  size_t nIF = imuPoseParameterBlockIds.size();
+  size_t nKF = kfPoseParameterBlockIds.size();
+  if (nKF == 0) {
+    return;
+  }
+  size_t n = nIF + nKF;
+  uint64_t newKfId = kfPoseParameterBlockIds.back();
 
   if (!dropKF_) {
-    if (newKfID > 0) {
-      statesMap_.at(newKfID).isKeyframe = true;
+    if (newKfId > 0) {
+      statesMap_.at(newKfId).isKeyframe = true;
     }
     return;
   }
 
-  Eigen::MatrixXd I;
-  getAllPoseInformation(I, false);
-  OKVIS_ASSERT_TRUE_DBG(Exception,
-      (n*6 == static_cast<size_t>(I.cols())) && 
-      (n*6 == static_cast<size_t>(I.rows())),
-      "Wrong size information for n: " << n << ", " << I.rows() << "x" <<
-      I.cols());
+  uint64_t oldKfId = kfPoseParameterBlockIds.front();
+  kfPoseParameterBlockIds.pop_back();
+  kfPoseParameterBlockIds.erase(kfPoseParameterBlockIds.begin());
 
-  CHECK_PSD(I);
+  std::vector<uint64_t> oldKfLandmarksToMarginalize;
+  std::vector<uint64_t> newKfLandmarksToMarginalize;
+  for (PointMap::iterator pit = landmarksMap_.begin();
+      pit != landmarksMap_.end(); pit++) {
+    ceres::Map::ResidualBlockCollection res = mapPtr_->residuals(pit->first);
+    bool isInOldKF = false;
+    bool isInNewKF = false;
+    bool isInOtherKF = false;
+    for (size_t i = 0; i < res.size(); i++) {
+      std::shared_ptr<ceres::ReprojectionErrorBase> reprojectionError =
+        std::dynamic_pointer_cast<ceres::ReprojectionErrorBase>(
+            res[i].errorInterfacePtr);
+      if (reprojectionError) {
+        uint64_t poseId = mapPtr_->parameters(res[i].residualBlockId).at(0).first;
+        isInOldKF |= (poseId == oldKfId);
+        isInNewKF |= (poseId == newKfId);
+        isInOtherKF |= vectorContains(kfPoseParameterBlockIds, poseId);
+      }
+    }
+    if (isInOtherKF) {
+      continue;
+    }
+    if (isInNewKF) {
+      newKfLandmarksToMarginalize.push_back(pit->first);
+    } else if (isInOldKF) {
+      oldKfLandmarksToMarginalize.push_back(pit->first);
+    }
+  }
 
-  // std::ofstream f;
-  // f.open("t", std::ofstream::app);
-  // f << I << std::endl;
-  // f.close();
-
-  // Set up information matrices for new and old keyframe options
   Eigen::MatrixXd I_new(6*(n-1), 6*(n-1));
   Eigen::MatrixXd I_old(6*(n-1), 6*(n-1));
+  std::vector<uint64_t> otherPoseParameterBlockIds = kfPoseParameterBlockIds;
+  otherPoseParameterBlockIds.insert(otherPoseParameterBlockIds.end(),
+      imuPoseParameterBlockIds.begin(), imuPoseParameterBlockIds.end());
+  mapPtr_->keyframeInfo(newKfId, oldKfId, otherPoseParameterBlockIds,
+      newKfLandmarksToMarginalize, oldKfLandmarksToMarginalize, I_new, I_old);
 
-  // Taking new keyframe: drop new frame to condition on it
-  I_new.topLeftCorner(6*(nKF-1), 6*(nKF-1)) = I.topLeftCorner(6*(nKF-1), 6*(nKF-1));
-  I_new.topRightCorner(6*(nKF-1), 6*nIF) = I.topRightCorner(6*(nKF-1), 6*nIF);
-  I_new.bottomLeftCorner(6*nIF, 6*(nKF-1)) = I.bottomLeftCorner(6*nIF, 6*(nKF-1));
-  I_new.bottomRightCorner(6*nIF, 6*nIF) = I.bottomRightCorner(6*nIF, 6*nIF);
-
-  // Keeping old keyframe: this requires dropping old, and moving new to front
-  std::vector<size_t> b_i = {0, 6, 6*(nKF-1), 6*nKF};
-  std::vector<size_t> b_s = {6, 6*(nKF-2), 6, 6*nIF};
-  std::vector<size_t> c_i = {0, 6, 6*(nKF-1)};
-  std::vector<size_t> c_s = {6, 6*(nKF-2), 6*nIF};
-
-  I_old.block(c_i[0], c_i[0], c_s[0], c_s[0]) = I.block(b_i[2], b_i[2], b_s[2], b_s[2]);
-  I_old.block(c_i[0], c_i[1], c_s[0], c_s[1]) = I.block(b_i[2], b_i[1], b_s[2], b_s[1]);
-  I_old.block(c_i[0], c_i[2], c_s[0], c_s[2]) = I.block(b_i[2], b_i[3], b_s[2], b_s[3]);
-  I_old.block(c_i[1], c_i[0], c_s[1], c_s[0]) = I.block(b_i[1], b_i[2], b_s[1], b_s[2]);
-  I_old.block(c_i[1], c_i[1], c_s[1], c_s[1]) = I.block(b_i[1], b_i[1], b_s[1], b_s[1]);
-  I_old.block(c_i[1], c_i[2], c_s[1], c_s[2]) = I.block(b_i[1], b_i[3], b_s[1], b_s[3]);
-  I_old.block(c_i[2], c_i[0], c_s[2], c_s[0]) = I.block(b_i[3], b_i[2], b_s[3], b_s[2]);
-  I_old.block(c_i[2], c_i[1], c_s[2], c_s[1]) = I.block(b_i[3], b_i[1], b_s[3], b_s[1]);
-  I_old.block(c_i[2], c_i[2], c_s[2], c_s[2]) = I.block(b_i[3], b_i[3], b_s[3], b_s[3]);
+  Eigen::SelfAdjointEigenSolver< Eigen::MatrixXd > saes(I_new);
+  Eigen::VectorXd eigs = saes.eigenvalues();
+  if (eigs[0] < 1e-8) {
+    LOG(WARNING) << "Fixing I_new: " << eigs[0] << " " << eigs.tail<1>();
+    I_new += (1e-8 - eigs[0]) * Eigen::MatrixXd::Identity(6*(n-1), 6*(n-1));
+  }
+  saes.compute(I_old);
+  eigs = saes.eigenvalues();
+  if (eigs[0] < 1e-8) {
+    LOG(WARNING) << "Fixing I_old: " << eigs[0] << " " << eigs.tail<1>();
+    I_old += (1e-8 - eigs[0]) * Eigen::MatrixXd::Identity(6*(n-1), 6*(n-1));
+  }
 
   CHECK_PSD(I_new);
   CHECK_PSD(I_old);
@@ -533,10 +537,12 @@ void Estimator::keyframeDecision() {
   double newKfScore = kfInfo(I_new);
   double oldKfScore = kfInfo(I_old);
 
-  LOG(INFO) << ((newKfScore > oldKfScore) ? "NEW " : "    ") << oldKfScore << " vs " << newKfScore;
-  if (newKfScore > oldKfScore && newKfID > 0) {
-    statesMap_.at(newKfID).isKeyframe = true;
-  }
+  LOG(INFO) << ((newKfScore > oldKfScore) ? "NEW " : "    ") << oldKfScore <<
+    " vs " << newKfScore << "; " << oldKfLandmarksToMarginalize.size() << " old lms, " 
+    newKfLandmarksToMarginalize.size() << " new lms";
+  // if (false && newKfScore > oldKfScore && newKfID > 0) {
+  //   statesMap_.at(newKfID).isKeyframe = true;
+  // }
 }
 
 // Applies the dropping/marginalization strategy according to the RSS'13/IJRR'14 paper.
@@ -1183,34 +1189,6 @@ bool Estimator::getStateUncertainty(Eigen::Matrix<double,15,15> & P) const {
   bool r = mapPtr_->getUncertainty(block_ids, t);
   if (r) {
     P = t;
-  }
-  return r;
-}
-
-bool Estimator::getAllPoseInformation(Eigen::MatrixXd & I, bool includeSpeedAndBias) const {
-  I.setZero();
-  std::vector<uint64_t> pose_ids;
-  uint32_t matSize = 0;
-  for (auto state : statesMap_) {
-    pose_ids.push_back(state.second.id);
-    matSize += 6;
-    if (includeSpeedAndBias && isInImuWindow(state.second.id)) {
-      pose_ids.push_back(state.second.sensors.at(SensorStates::Imu).at(0)
-	  .at(ImuSensorStates::SpeedAndBias).id);
-      matSize += 9;
-    }
-  }
-
-  std::vector<uint64_t> landmark_ids;
-  for (auto lm : landmarksMap_) {
-    landmark_ids.push_back(lm.second.id);
-  }
-
-  // TODO: get this to work without the temporary matrix/coping
-  Eigen::MatrixXd t(matSize, matSize);
-  bool r = mapPtr_->poseInfoWithLandmarksMarginalized(pose_ids, landmark_ids, t);
-  if (r) {
-    I = t;
   }
   return r;
 }

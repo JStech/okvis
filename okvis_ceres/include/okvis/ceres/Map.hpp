@@ -144,10 +144,14 @@ class Map {
    */
   bool getPoseUncertainty(uint64_t parameterBlockId, Eigen::Matrix<double, 6, 6> & P_T_WS);
 
-  bool poseInfoWithLandmarksMarginalized(
-      std::vector<uint64_t> poseParameterBlockIds,
-      std::vector<uint64_t> landmarkParameterBlockIds,
-      Eigen::MatrixXd &I);
+  bool keyframeInfo(
+      uint64_t newKfPoseParameterBlockId,
+      uint64_t oldKfPoseParameterBlockId,
+      std::vector<uint64_t> otherPoseParameterBlockIds,
+      std::vector<uint64_t> newKfLandmarkParameterBlockIds,
+      std::vector<uint64_t> oldKfLandmarkParameterBlockIds,
+      Eigen::MatrixXd &I_new,
+      Eigen::MatrixXd &I_old);
 
   /**
    * @brief Obtain the information matrix for any set of blocks
