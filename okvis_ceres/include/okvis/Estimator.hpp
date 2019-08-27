@@ -422,6 +422,8 @@ class Estimator : public VioBackendInterface
 
   void logTrackingFailure(const okvis::Time &t, uint32_t numMatches);
 
+  bool useInfoKeyframe() const;
+
  private:
 
   double kfInfo(Eigen::MatrixXd P);

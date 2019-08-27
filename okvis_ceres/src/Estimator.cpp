@@ -60,6 +60,7 @@
 }
 
 DEFINE_string(kf_log, "", "Log file for key frame info");
+DEFINE_bool(info_kf, false, "Use Fisher information to set keyframes");
 
 /// \brief okvis Main namespace of this package.
 namespace okvis {
@@ -102,9 +103,9 @@ Estimator::~Estimator()
       std::shared_ptr<okvis::ceres::ParameterBlock> pp = mapPtr_->parameterBlockPtr(pose_id);
       OKVIS_ASSERT_TRUE(Exception, pp->dimension() == 7, "Parameter wrong size");
       const double * const pars = pp->parameters();
-      kfLog_ << s.second.timestamp << " " << pose_id << " " << pars[0] << " "
-        << pars[1] << " " << pars[2] << " " << pars[3] << " " << pars[4] << " "
-        << pars[5] << " " << pars[6] << std::endl;
+      kfLog_ << s.second.timestamp << " " << " " << pars[0] << " " << pars[1] <<
+        " " << pars[2] << " " << pars[3] << " " << pars[4] << " " << pars[5] <<
+        " " << pars[6] << std::endl;
     }
     kfLog_.close();
   }
@@ -475,6 +476,9 @@ double Estimator::kfInfo(Eigen::MatrixXd I) {
 // the trial keyframe (which just rolled off the IMU window) to decide whether
 // to use trial keyframe or keep the old one
 void Estimator::keyframeDecision() {
+  if (!FLAGS_info_kf) {
+    return;
+  }
 
   std::vector<uint64_t> kfPoseParameterBlockIds;
   std::vector<uint64_t> imuPoseParameterBlockIds;
@@ -708,9 +712,9 @@ bool Estimator::applyMarginalizationStrategy(
       std::shared_ptr<okvis::ceres::ParameterBlock> pp = mapPtr_->parameterBlockPtr(pose_id);
       OKVIS_ASSERT_TRUE(Exception, pp->dimension() == 7, "Parameter wrong size");
       const double * const pars = pp->parameters();
-      kfLog_ << it->second.timestamp << " " << pose_id << " " << pars[0] << " "
-        << pars[1] << " " << pars[2] << " " << pars[3] << " " << pars[4] << " "
-        << pars[5] << " " << pars[6] << std::endl;
+      kfLog_ << it->second.timestamp << " " << " " << pars[0] << " " << pars[1]
+        << " " << pars[2] << " " << pars[3] << " " << pars[4] << " " << pars[5]
+        << " " << pars[6] << std::endl;
     }
 
     // schedule removal - but always keep the very first frame.
@@ -1318,6 +1322,11 @@ void Estimator::logTrackingFailure(const okvis::Time &t, uint32_t numMatches) {
     kfLog_ << "# tracking failure at " << t << ", 3d-2d matches: " << numMatches
       << std::endl;
   }
+}
+
+// use Fisher information to set keyframes
+bool Estimator::useInfoKeyframe() const {
+  return FLAGS_info_kf;
 }
 
 // private stuff

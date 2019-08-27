@@ -194,7 +194,7 @@ bool Frontend::dataAssociationAndInitialization(
     }
 
     // keyframe decision, at the moment only landmarks that match with keyframe are initialised
-    // *asKeyframe = *asKeyframe || doWeNeedANewKeyframe(estimator, framesInOut);
+    *asKeyframe = *asKeyframe || doWeNeedANewKeyframe(estimator, framesInOut);
 
     // match to last frame
     TimerSwitchable matchToLastFrameTimer("2.4.2 matchToLastFrame");
@@ -296,6 +296,10 @@ bool Frontend::propagation(const okvis::ImuMeasurementDeque & imuMeasurements,
 bool Frontend::doWeNeedANewKeyframe(
     const okvis::Estimator& estimator,
     std::shared_ptr<okvis::MultiFrame> currentFrame) {
+
+  if (estimator.useInfoKeyframe()) {
+    return false;
+  }
 
   if (estimator.numFrames() < 2) {
     // just starting, so yes, we need this as a new keyframe
