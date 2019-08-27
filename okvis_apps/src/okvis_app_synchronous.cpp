@@ -65,6 +65,10 @@
 DEFINE_string(config, "", "Configuration YAML file");
 DEFINE_string(data, "", "Dataset folder, EUROC format");
 DEFINE_double(skip_secs, 0., "Initial seconds to skip");
+DEFINE_string(pose_log, "", "Pose logfile");
+DEFINE_bool(quit, false, "Quit when finished");
+
+std::ofstream poseLog;
 
 class PoseViewer
 {
@@ -80,10 +84,15 @@ class PoseViewer
   }
   // this we can register as a callback
   void publishFullStateAsCallback(
-      const okvis::Time & /*t*/, const okvis::kinematics::Transformation & T_WS,
+      const okvis::Time & t, const okvis::kinematics::Transformation & T_WS,
       const Eigen::Matrix<double, 9, 1> & speedAndBiases,
       const Eigen::Matrix<double, 3, 1> & /*omega_S*/)
   {
+
+    if (poseLog.is_open()) {
+      poseLog << t << " " << T_WS.r().transpose() << std::endl << " " <<
+        T_WS.q().coeffs().transpose();
+    }
 
     // just append the path
     Eigen::Vector3d r = T_WS.r();
@@ -220,6 +229,8 @@ int main(int argc, char **argv)
 
   okvis::Duration deltaT(FLAGS_skip_secs);
 
+  poseLog.open(FLAGS_pose_log);
+
   // read configuration file
   std::string configFilename(FLAGS_config);
 
@@ -308,8 +319,11 @@ int main(int argc, char **argv)
     // check if at the end
     for (size_t i = 0; i < numCameras; ++i) {
       if (cam_iterators[i] == image_names[i].end()) {
-        std::cout << std::endl << "Finished. Press any key to exit." << std::endl << std::flush;
-        cv::waitKey();
+        poseLog.close();
+        if (!FLAGS_quit) {
+          std::cout << std::endl << "Finished. Press any key to exit." << std::endl << std::flush;
+          cv::waitKey();
+        }
         return 0;
       }
     }
@@ -334,8 +348,11 @@ int main(int argc, char **argv)
       okvis::Time t_imu = start;
       do {
         if (!std::getline(imu_file, line)) {
-          std::cout << std::endl << "Finished. Press any key to exit." << std::endl << std::flush;
-          cv::waitKey();
+          poseLog.close();
+          if (!FLAGS_quit) {
+            std::cout << std::endl << "Finished. Press any key to exit." << std::endl << std::flush;
+            cv::waitKey();
+          }
           return 0;
         }
 
