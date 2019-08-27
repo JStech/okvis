@@ -537,9 +537,6 @@ void Estimator::keyframeDecision() {
   double newKfScore = kfInfo(I_new);
   double oldKfScore = kfInfo(I_old);
 
-  LOG(INFO) << "Keyframe decision: " <<
-    ((newKfScore > oldKfScore) ? "NEW " : "    ") << oldKfScore <<
-    " vs " << newKfScore;
   if ((newKfScore > oldKfScore) && (newKfId > 0)) {
     statesMap_.at(newKfId).isKeyframe = true;
   }
@@ -682,6 +679,18 @@ bool Estimator::applyMarginalizationStrategy(
   bool reDoFixation = false;
   for(size_t k = 0; k<removeFrames.size(); ++k){
     std::map<uint64_t, States>::iterator it = statesMap_.find(removeFrames[k]);
+    if (it->second.isKeyframe) {
+      std::ofstream kf_log;
+      kf_log.open("kf_log", std::ofstream::app);
+      uint64_t pose_id = it->second.global[GlobalStates::T_WS].id;
+      std::shared_ptr<okvis::ceres::ParameterBlock> pp = mapPtr_->parameterBlockPtr(pose_id);
+      OKVIS_ASSERT_TRUE(Exception, pp->dimension() == 7, "Parameter wrong size");
+      const double * const pars = pp->parameters();
+      kf_log << it->second.timestamp << " " << pose_id << " " << pars[0] << " "
+        << pars[1] << " " << pars[2] << " " << pars[3] << " " << pars[4] << " "
+        << pars[5] << " " << pars[6] << std::endl;
+      kf_log.close();
+    }
 
     // schedule removal - but always keep the very first frame.
     //if(it != statesMap_.begin()){
