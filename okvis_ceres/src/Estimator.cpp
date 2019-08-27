@@ -49,7 +49,7 @@
 #include <okvis/MultiFrame.hpp>
 #include <okvis/assert_macros.hpp>
 
-#define CHECK_PSD(m) if (true) {\
+#define CHECK_PSD(m) if (false) {\
   Eigen::LDLT<Eigen::MatrixXd> chol(m);\
   if (chol.info() == Eigen::NumericalIssue) {\
     LOG(WARNING) << "Numerical issue checking if matrix is PSD";\
@@ -442,7 +442,7 @@ bool vectorContains(const std::vector<T> & vector, const T & query){
 // marginalize out (Schur complement) first pose, find log det of remaining
 // information for final n poses
 double Estimator::kfInfo(Eigen::MatrixXd I) {
-  Eigen::LDLT<Eigen::MatrixXd> chol(I);
+  Eigen::LDLT<Eigen::MatrixXd> chol(I.bottomRightCorner(24, 24));
   Eigen::VectorXd d = chol.vectorD();
   return d.array().log().sum();
 }
@@ -537,12 +537,12 @@ void Estimator::keyframeDecision() {
   double newKfScore = kfInfo(I_new);
   double oldKfScore = kfInfo(I_old);
 
-  LOG(INFO) << ((newKfScore > oldKfScore) ? "NEW " : "    ") << oldKfScore <<
-    " vs " << newKfScore << "; " << oldKfLandmarksToMarginalize.size() << " old lms, " 
-    newKfLandmarksToMarginalize.size() << " new lms";
-  // if (false && newKfScore > oldKfScore && newKfID > 0) {
-  //   statesMap_.at(newKfID).isKeyframe = true;
-  // }
+  LOG(INFO) << "Keyframe decision: " <<
+    ((newKfScore > oldKfScore) ? "NEW " : "    ") << oldKfScore <<
+    " vs " << newKfScore;
+  if ((newKfScore > oldKfScore) && (newKfId > 0)) {
+    statesMap_.at(newKfId).isKeyframe = true;
+  }
 }
 
 // Applies the dropping/marginalization strategy according to the RSS'13/IJRR'14 paper.
