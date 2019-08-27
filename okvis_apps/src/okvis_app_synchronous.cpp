@@ -42,6 +42,7 @@
  * @author Andreas Forster
  */
 
+#include <gflags/gflags.h>
 #include <iostream>
 #include <fstream>
 #include <stdlib.h>
@@ -60,6 +61,10 @@
 #include <okvis/ThreadedKFVio.hpp>
 
 #include <boost/filesystem.hpp>
+
+DEFINE_string(config, "", "Configuration YAML file");
+DEFINE_string(data, "", "Dataset folder, EUROC format");
+DEFINE_double(skip_secs, 0., "Initial seconds to skip");
 
 class PoseViewer
 {
@@ -199,22 +204,24 @@ class PoseViewer
 int main(int argc, char **argv)
 {
   google::InitGoogleLogging(argv[0]);
+  std::string usage("visual-inertial odometry\n    Usage: ");
+  usage += argv[0];
+  usage += " -config <path_to_YAML_config> -data <path_to_data_dir>";
+  gflags::SetUsageMessage(usage);
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
   FLAGS_stderrthreshold = 0;  // INFO: 0, WARNING: 1, ERROR: 2, FATAL: 3
   FLAGS_colorlogtostderr = 1;
 
-  if (argc != 3 && argc != 4) {
-    LOG(ERROR)<<
-    "Usage: ./" << argv[0] << " configuration-yaml-file dataset-folder [skip-first-seconds]";
+  if (gflags::GetCommandLineFlagInfoOrDie("config").is_default ||
+      gflags::GetCommandLineFlagInfoOrDie("data").is_default) {
+    gflags::ShowUsageWithFlagsRestrict(argv[0], "okvis_app_synchronous.cpp");
     return -1;
   }
 
-  okvis::Duration deltaT(0.0);
-  if (argc == 4) {
-    deltaT = okvis::Duration(atof(argv[3]));
-  }
+  okvis::Duration deltaT(FLAGS_skip_secs);
 
   // read configuration file
-  std::string configFilename(argv[1]);
+  std::string configFilename(FLAGS_config);
 
   okvis::VioParametersReader vio_parameters_reader(configFilename);
   okvis::VioParameters parameters;
@@ -231,7 +238,7 @@ int main(int argc, char **argv)
   okvis_estimator.setBlocking(true);
 
   // the folder path
-  std::string path(argv[2]);
+  std::string path(FLAGS_data);
 
   const unsigned int numCameras = parameters.nCameraSystem.numCameras();
 
@@ -240,6 +247,7 @@ int main(int argc, char **argv)
   std::ifstream imu_file(path + "/imu0/data.csv");
   if (!imu_file.good()) {
     LOG(ERROR)<< "no imu file found at " << path+"/imu0/data.csv";
+    gflags::ShowUsageWithFlags(argv[0]);
     return -1;
   }
   int number_of_lines = 0;
@@ -248,6 +256,7 @@ int main(int argc, char **argv)
   LOG(INFO)<< "No. IMU measurements: " << number_of_lines-1;
   if (number_of_lines - 1 <= 0) {
     LOG(ERROR)<< "no imu messages present in " << path+"/imu0/data.csv";
+    gflags::ShowUsageWithFlags(argv[0]);
     return -1;
   }
   // set reading position to second line
@@ -275,6 +284,7 @@ int main(int argc, char **argv)
 
     if (num_camera_images == 0) {
       LOG(ERROR)<< "no images at " << folder;
+      gflags::ShowUsageWithFlags(argv[0]);
       return 1;
     }
 

@@ -420,6 +420,8 @@ class Estimator : public VioBackendInterface
   }
   ///@}
 
+  void logTrackingFailure(const okvis::Time &t, uint32_t numMatches);
+
  private:
 
   double kfInfo(Eigen::MatrixXd P);
@@ -592,6 +594,9 @@ class Estimator : public VioBackendInterface
 
   // whether the keyframe window is full
   bool dropKF_ = false;
+
+  // keyframe log file
+  std::ofstream kfLog_;
 };
 
 }  // namespace okvis

@@ -38,6 +38,7 @@
  * @author Andreas Forster
  */
 
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <okvis/Estimator.hpp>
 #include <okvis/ceres/PoseParameterBlock.hpp>
@@ -58,6 +59,8 @@
   }\
 }
 
+DEFINE_string(kf_log, "", "Log file for key frame info");
+
 /// \brief okvis Main namespace of this package.
 namespace okvis {
 
@@ -70,6 +73,9 @@ Estimator::Estimator(
       huberLossFunctionPtr_(new ::ceres::HuberLoss(1)),
       marginalizationResidualId_(0)
 {
+  if (!gflags::GetCommandLineFlagInfoOrDie("kf_log").is_default) {
+    kfLog_.open(FLAGS_kf_log);
+  }
 }
 
 // The default constructor.
@@ -80,10 +86,28 @@ Estimator::Estimator()
       huberLossFunctionPtr_(new ::ceres::HuberLoss(1)),
       marginalizationResidualId_(0)
 {
+  if (!gflags::GetCommandLineFlagInfoOrDie("kf_log").is_default) {
+    kfLog_.open(FLAGS_kf_log);
+  }
 }
 
 Estimator::~Estimator()
 {
+  if (kfLog_.is_open()) {
+    for (auto s : statesMap_) {
+      if (!s.second.isKeyframe) {
+        continue;
+      }
+      uint64_t pose_id = s.second.global[GlobalStates::T_WS].id;
+      std::shared_ptr<okvis::ceres::ParameterBlock> pp = mapPtr_->parameterBlockPtr(pose_id);
+      OKVIS_ASSERT_TRUE(Exception, pp->dimension() == 7, "Parameter wrong size");
+      const double * const pars = pp->parameters();
+      kfLog_ << s.second.timestamp << " " << pose_id << " " << pars[0] << " "
+        << pars[1] << " " << pars[2] << " " << pars[3] << " " << pars[4] << " "
+        << pars[5] << " " << pars[6] << std::endl;
+    }
+    kfLog_.close();
+  }
 }
 
 // Add a camera to the configuration. Sensors can only be added and never removed.
@@ -679,17 +703,14 @@ bool Estimator::applyMarginalizationStrategy(
   bool reDoFixation = false;
   for(size_t k = 0; k<removeFrames.size(); ++k){
     std::map<uint64_t, States>::iterator it = statesMap_.find(removeFrames[k]);
-    if (it->second.isKeyframe) {
-      std::ofstream kf_log;
-      kf_log.open("kf_log", std::ofstream::app);
+    if (it->second.isKeyframe && kfLog_.is_open()) {
       uint64_t pose_id = it->second.global[GlobalStates::T_WS].id;
       std::shared_ptr<okvis::ceres::ParameterBlock> pp = mapPtr_->parameterBlockPtr(pose_id);
       OKVIS_ASSERT_TRUE(Exception, pp->dimension() == 7, "Parameter wrong size");
       const double * const pars = pp->parameters();
-      kf_log << it->second.timestamp << " " << pose_id << " " << pars[0] << " "
+      kfLog_ << it->second.timestamp << " " << pose_id << " " << pars[0] << " "
         << pars[1] << " " << pars[2] << " " << pars[3] << " " << pars[4] << " "
         << pars[5] << " " << pars[6] << std::endl;
-      kf_log.close();
     }
 
     // schedule removal - but always keep the very first frame.
@@ -1289,6 +1310,14 @@ void Estimator::setLandmarkInitialized(uint64_t landmarkId,
                      "landmark not added");
   std::static_pointer_cast<okvis::ceres::HomogeneousPointParameterBlock>(
       mapPtr_->parameterBlockPtr(landmarkId))->setInitialized(initialized);
+}
+
+// Log tracking failure
+void Estimator::logTrackingFailure(const okvis::Time &t, uint32_t numMatches) {
+  if (kfLog_.is_open()) {
+    kfLog_ << "# tracking failure at " << t << ", 3d-2d matches: " << numMatches
+      << std::endl;
+  }
 }
 
 // private stuff

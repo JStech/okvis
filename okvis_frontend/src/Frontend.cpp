@@ -190,6 +190,7 @@ bool Frontend::dataAssociationAndInitialization(
 
     if (num3dMatches <= requiredMatches) {
       LOG(WARNING) << "Tracking failure. Number of 3d2d-matches: " << num3dMatches;
+      estimator.logTrackingFailure(framesInOut->timestamp(), num3dMatches);
     }
 
     // keyframe decision, at the moment only landmarks that match with keyframe are initialised
