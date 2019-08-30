@@ -476,10 +476,6 @@ double Estimator::kfInfo(Eigen::MatrixXd I) {
 // the trial keyframe (which just rolled off the IMU window) to decide whether
 // to use trial keyframe or keep the old one
 void Estimator::keyframeDecision() {
-  if (!FLAGS_info_kf) {
-    return;
-  }
-
   std::vector<uint64_t> kfPoseParameterBlockIds;
   std::vector<uint64_t> imuPoseParameterBlockIds;
   for (auto state : statesMap_) {
@@ -492,13 +488,13 @@ void Estimator::keyframeDecision() {
 
   size_t nIF = imuPoseParameterBlockIds.size();
   size_t nKF = kfPoseParameterBlockIds.size();
-  if (nKF == 0) {
+  if (nKF < 3) {
     return;
   }
   size_t n = nIF + nKF;
   uint64_t newKfId = kfPoseParameterBlockIds.back();
 
-  if (!dropKF_) {
+  if (!dropKF_ && FLAGS_info_kf) {
     if (newKfId > 0) {
       statesMap_.at(newKfId).isKeyframe = true;
     }
@@ -543,6 +539,8 @@ void Estimator::keyframeDecision() {
   std::vector<uint64_t> otherPoseParameterBlockIds = kfPoseParameterBlockIds;
   otherPoseParameterBlockIds.insert(otherPoseParameterBlockIds.end(),
       imuPoseParameterBlockIds.begin(), imuPoseParameterBlockIds.end());
+
+  // info calculation
   mapPtr_->keyframeInfo(newKfId, oldKfId, otherPoseParameterBlockIds,
       newKfLandmarksToMarginalize, oldKfLandmarksToMarginalize, I_new, I_old);
 
@@ -565,8 +563,13 @@ void Estimator::keyframeDecision() {
   double newKfScore = kfInfo(I_new);
   double oldKfScore = kfInfo(I_old);
 
-  if ((newKfScore > oldKfScore) && (newKfId > 0)) {
+  if (FLAGS_info_kf && (newKfScore > oldKfScore) && (newKfId > 0)) {
     statesMap_.at(newKfId).isKeyframe = true;
+  } else if (kfLog_.is_open()) {
+    kfLog_ << statesMap_.rbegin()->second.timestamp << " " <<
+      statesMap_.at(newKfId).timestamp << " " <<
+      statesMap_.at(oldKfId).timestamp << " " << newKfScore << " " <<
+      oldKfScore << std::endl;
   }
 }
 
@@ -586,7 +589,7 @@ bool Estimator::applyMarginalizationStrategy(
       return true;
     }
   }
-  
+
   // remove linear marginalizationError, if existing
   if (marginalizationErrorPtr_ && marginalizationResidualId_) {
     bool success = mapPtr_->removeResidualBlock(marginalizationResidualId_);
@@ -626,7 +629,7 @@ bool Estimator::applyMarginalizationStrategy(
     allLinearizedFrames.push_back(rit->second.id);
     ++rit;// check the next frame
   }
-  
+
   if (countedKeyframes >= numKeyframes) {
     dropKF_ = true;
   }
