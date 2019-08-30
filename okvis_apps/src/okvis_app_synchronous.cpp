@@ -90,8 +90,11 @@ class PoseViewer
   {
 
     if (poseLog.is_open()) {
-      poseLog << t << " " << T_WS.r().transpose() << std::endl << " " <<
-        T_WS.q().coeffs().transpose();
+      Eigen::Quaterniond q = T_WS.q();
+      Eigen::Vector3d r = T_WS.r();
+      poseLog << t << " " <<
+        q.w() << " " << q.x() << " " << q.y() << " " << q.z() << " " << 
+        r[0] << " " << r[1] << " " << r[2] << std::endl;
     }
 
     // just append the path
