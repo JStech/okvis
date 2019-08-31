@@ -422,7 +422,7 @@ class Estimator : public VioBackendInterface
 
   void logTrackingFailure(const okvis::Time &t, uint32_t numMatches);
 
-  bool useInfoKeyframe() const;
+  bool useFrontendKeyframe() const;
 
  private:
 

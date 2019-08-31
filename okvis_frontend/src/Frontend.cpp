@@ -297,7 +297,7 @@ bool Frontend::doWeNeedANewKeyframe(
     const okvis::Estimator& estimator,
     std::shared_ptr<okvis::MultiFrame> currentFrame) {
 
-  if (estimator.useInfoKeyframe()) {
+  if (!estimator.useFrontendKeyframe()) {
     return false;
   }
 

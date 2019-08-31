@@ -49,6 +49,7 @@
 #include <okvis/IdProvider.hpp>
 #include <okvis/MultiFrame.hpp>
 #include <okvis/assert_macros.hpp>
+#include <math.h>
 
 #define CHECK_PSD(m) if (false) {\
   Eigen::LDLT<Eigen::MatrixXd> chol(m);\
@@ -61,6 +62,7 @@
 
 DEFINE_string(kf_log, "", "Log file for key frame info");
 DEFINE_bool(info_kf, false, "Use Fisher information to set keyframes");
+DEFINE_bool(dist_kf, false, "Use distance/rotation criteria to set keyframes");
 
 /// \brief okvis Main namespace of this package.
 namespace okvis {
@@ -476,28 +478,55 @@ double Estimator::kfInfo(Eigen::MatrixXd I) {
 // the trial keyframe (which just rolled off the IMU window) to decide whether
 // to use trial keyframe or keep the old one
 void Estimator::keyframeDecision() {
+
+  // cases:
+  //  heur - just calculate info metric (if there are enough keyframes)
+  //  dist - make keyframe decision using distance/rotation between newest frame
+  //          and last keyframe
+  //  info - use info metric to make keyframe decision
   std::vector<uint64_t> kfPoseParameterBlockIds;
   std::vector<uint64_t> imuPoseParameterBlockIds;
+  uint64_t most_recent_keyframe = 0;
   for (auto state : statesMap_) {
     if (isInImuWindow(state.second.id)) {
       imuPoseParameterBlockIds.push_back(state.second.id);
     } else {
       kfPoseParameterBlockIds.push_back(state.second.id);
     }
+    if (state.second.isKeyframe) {
+      most_recent_keyframe = state.second.id;
+    }
   }
 
   size_t nIF = imuPoseParameterBlockIds.size();
   size_t nKF = kfPoseParameterBlockIds.size();
-  if (nKF < 3) {
-    return;
-  }
   size_t n = nIF + nKF;
-  uint64_t newKfId = kfPoseParameterBlockIds.back();
+
+  uint64_t newKfId = (nKF == 0) ? 0 : kfPoseParameterBlockIds.back();
+
+  if (FLAGS_dist_kf) {
+    okvis::kinematics::Transformation T_WS_lastKf;
+    okvis::kinematics::Transformation T_WS_new;
+    get_T_WS(most_recent_keyframe, T_WS_lastKf);
+    get_T_WS(imuPoseParameterBlockIds.back(), T_WS_new);
+    okvis::kinematics::Transformation d = T_WS_new.inverse() * T_WS_lastKf;
+
+    double d_dist = d.r().norm();
+    double d_theta = acos((d.C().trace() - 1.)/2.);
+
+    if ((d_dist > 0.4) || (d_theta > 0.2618)) {
+      statesMap_.at(imuPoseParameterBlockIds.back()).isKeyframe = true;
+    }
+  }
 
   if (!dropKF_ && FLAGS_info_kf) {
     if (newKfId > 0) {
       statesMap_.at(newKfId).isKeyframe = true;
     }
+    return;
+  }
+
+  if (nKF < 3) {
     return;
   }
 
@@ -713,7 +742,6 @@ bool Estimator::applyMarginalizationStrategy(
     if (it->second.isKeyframe && kfLog_.is_open()) {
       uint64_t pose_id = it->second.global[GlobalStates::T_WS].id;
       std::shared_ptr<okvis::ceres::ParameterBlock> pp = mapPtr_->parameterBlockPtr(pose_id);
-      OKVIS_ASSERT_TRUE(Exception, pp->dimension() == 7, "Parameter wrong size");
       const double * const pars = pp->parameters();
       kfLog_ << it->second.timestamp << " " << " " << pars[0] << " " << pars[1]
         << " " << pars[2] << " " << pars[3] << " " << pars[4] << " " << pars[5]
@@ -1328,8 +1356,8 @@ void Estimator::logTrackingFailure(const okvis::Time &t, uint32_t numMatches) {
 }
 
 // use Fisher information to set keyframes
-bool Estimator::useInfoKeyframe() const {
-  return FLAGS_info_kf;
+bool Estimator::useFrontendKeyframe() const {
+  return (!FLAGS_info_kf && !FLAGS_dist_kf);
 }
 
 // private stuff
