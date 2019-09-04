@@ -192,7 +192,9 @@ ThreadedKFVio::~ThreadedKFVio() {
 bool ThreadedKFVio::addImage(const okvis::Time & stamp, size_t cameraIndex,
                              const cv::Mat & image,
                              const std::vector<cv::KeyPoint> * keypoints,
-                             bool* /*asKeyframe*/) {
+                             bool* /*asKeyframe*/,
+                             bool has_roi,
+                             okvis::ROI roi) {
   assert(cameraIndex<numCameras_);
 
   if (lastAddedImageTimestamp_ > stamp
@@ -215,6 +217,14 @@ bool ThreadedKFVio::addImage(const okvis::Time & stamp, size_t cameraIndex,
     frame->measurement.keypoints = *keypoints;
   } else {
     frame->measurement.deliversKeypoints = false;
+  }
+
+  frame->measurement.hasROI = false;
+  if (has_roi) {
+    frame->measurement.hasROI = true;
+    frame->measurement.roi = roi;
+  } else {
+    frame->measurement.hasROI = false;
   }
 
   if (blocking_) {
@@ -654,7 +664,13 @@ void ThreadedKFVio::display() {
   for (size_t im = 0; im < parameters_.nCameraSystem.numCameras(); im++) {
     std::stringstream windowname;
     windowname << "OKVIS camera " << im;
-    cv::imshow(windowname.str(), out_images[im]);
+    int rows = out_images[im].rows;
+    int cols = out_images[im].cols;
+    float scale = fminf(900. / static_cast<float>(rows), 1.);
+    scale = fminf(1400. / static_cast<float>(cols), scale);
+    cv::Mat outimg;
+    cv::resize(out_images[im], outimg, cv::Size(), scale, scale, CV_INTER_LINEAR);
+    cv::imshow(windowname.str(), outimg);
   }
   cv::waitKey(1);
 }
@@ -779,6 +795,7 @@ void ThreadedKFVio::optimizationLoop() {
                                    lastOptimizedSpeedAndBiases_);
         lastOptimizedStateTimestamp_ = frame_pairs->timestamp();
 
+        result.stamp = lastOptimizedStateTimestamp_;
         // if we publish the state after each IMU propagation we do not need to publish it here.
         if (!parameters_.publishing.publishImuPropagatedState) {
           result.T_WS = lastOptimized_T_WS_;

@@ -41,6 +41,7 @@
 #ifndef INCLUDE_OKVIS_FRAMETYPEDEFS_HPP_
 #define INCLUDE_OKVIS_FRAMETYPEDEFS_HPP_
 
+#include <array>
 #include <map>
 
 #include <Eigen/Core>
@@ -173,7 +174,7 @@ typedef std::vector<MapPoint, Eigen::aligned_allocator<MapPoint> > MapPointVecto
 typedef std::map<uint64_t, MapPoint, std::less<uint64_t>,
     Eigen::aligned_allocator<std::pair<const uint64_t, MapPoint> > > PointMap;
 typedef std::map<uint64_t, okvis::kinematics::Transformation, std::less<uint64_t>,
-    Eigen::aligned_allocator<okvis::kinematics::Transformation> > TransformationMap;
+    Eigen::aligned_allocator<std::pair<const uint64_t, okvis::kinematics::Transformation> > > TransformationMap;
 
 /// \brief For convenience to pass associations - also contains the 3d points.
 struct Observation
@@ -232,6 +233,7 @@ typedef std::vector<Observation, Eigen::aligned_allocator<Observation> > Observa
 // todo: find a better place for this
 typedef Eigen::Matrix<double, 9, 1> SpeedAndBiases;
 typedef Eigen::Matrix<double, 9, 1> SpeedAndBias;
+typedef std::array<Eigen::Vector2d, 4> ROI;
 
 }  // namespace okvis
 

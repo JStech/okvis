@@ -42,14 +42,16 @@
  * @author Andreas Forster
  */
 
+#include <stdlib.h>
+#include <signal.h>
+
+#include <Eigen/Core>
+
 #include <iostream>
 #include <fstream>
-#include <stdlib.h>
 #include <memory>
 #include <functional>
 #include <atomic>
-
-#include <Eigen/Core>
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
@@ -60,6 +62,35 @@
 #include <okvis/ThreadedKFVio.hpp>
 
 #include <boost/filesystem.hpp>
+
+std::ofstream lf_file;
+std::ofstream lm_file;
+std::ofstream ps_file;
+std::ifstream roi_file;
+bool roi_end;
+
+static const Eigen::IOFormat CSVFormat(Eigen::StreamPrecision,
+    Eigen::DontAlignCols, ", ", "\n");
+
+okvis::PointMap landmarks;
+
+void getROI(okvis::Time t, okvis::ROI *roi);
+
+void landmarksCallback(const okvis::Time & t,
+    const okvis::MapPointVector & curr_lms,
+    const okvis::MapPointVector & marg_lms) {
+  lf_file << t.toNSec() << ",0,";
+  for (okvis::MapPointVector::const_iterator it = curr_lms.begin();
+      it != curr_lms.end(); it++) {
+    lf_file << it->id << ",";
+    landmarks.insert(std::pair<uint64_t, okvis::MapPoint>(it->id, *it));
+  }
+  lf_file << std::endl;
+  for (okvis::MapPointVector::const_iterator it = marg_lms.begin();
+      it != marg_lms.end(); it++) {
+    landmarks.insert(std::pair<uint64_t, okvis::MapPoint>(it->id, *it));
+  }
+}
 
 class PoseViewer
 {
@@ -75,10 +106,15 @@ class PoseViewer
   }
   // this we can register as a callback
   void publishFullStateAsCallback(
-      const okvis::Time & /*t*/, const okvis::kinematics::Transformation & T_WS,
+      const okvis::Time & t, const okvis::kinematics::Transformation & T_WS,
       const Eigen::Matrix<double, 9, 1> & speedAndBiases,
       const Eigen::Matrix<double, 3, 1> & /*omega_S*/)
   {
+
+    Eigen::Quaterniond q = T_WS.q();
+    ps_file << t.toNSec() << "," <<
+      q.w() << "," << q.x() << "," << q.y() << "," << q.z() << "," <<
+      T_WS.r().transpose().format(CSVFormat) << std::endl;
 
     // just append the path
     Eigen::Vector3d r = T_WS.r();
@@ -195,22 +231,24 @@ class PoseViewer
   std::atomic_bool showing_;
 };
 
+void cleanExit(int);
+
 // this is just a workbench. most of the stuff here will go into the Frontend class.
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
   FLAGS_stderrthreshold = 0;  // INFO: 0, WARNING: 1, ERROR: 2, FATAL: 3
   FLAGS_colorlogtostderr = 1;
 
-  if (argc != 3 && argc != 4) {
+  if (argc != 5 && argc != 6) {
+    LOG(ERROR) << argc;
     LOG(ERROR)<<
-    "Usage: ./" << argv[0] << " configuration-yaml-file dataset-folder [skip-first-seconds]";
+    "Usage: ./" << argv[0] << " configuration-yaml-file dataset-folder output-folder roi-file [skip-first-seconds]";
     return -1;
   }
 
   okvis::Duration deltaT(0.0);
-  if (argc == 4) {
-    deltaT = okvis::Duration(atof(argv[3]));
+  if (argc == 6) {
+    deltaT = okvis::Duration(atof(argv[5]));
   }
 
   // read configuration file
@@ -228,7 +266,28 @@ int main(int argc, char **argv)
                 std::placeholders::_1, std::placeholders::_2,
                 std::placeholders::_3, std::placeholders::_4));
 
+  okvis_estimator.setLandmarksCallback(landmarksCallback);
+
   okvis_estimator.setBlocking(true);
+
+  // open output files
+  std::ostringstream filename;
+
+  filename << argv[3] << "/landmarks.txt";
+  lm_file.open(filename.str());
+
+  filename.str("");
+  filename.clear();
+  filename << argv[3] << "/lm_frame.txt";
+  lf_file.open(filename.str());
+
+  filename.str("");
+  filename.clear();
+  filename << argv[3] << "/poses.txt";
+  ps_file.open(filename.str());
+
+  roi_file.open(std::string(argv[4]));
+  roi_end = true;
 
   // the folder path
   std::string path(argv[2]);
@@ -289,6 +348,8 @@ int main(int argc, char **argv)
     cam_iterators.at(i) = image_names.at(i).begin();
   }
 
+  signal(SIGINT, cleanExit);
+
   int counter = 0;
   okvis::Time start(0.0);
   while (true) {
@@ -299,8 +360,8 @@ int main(int argc, char **argv)
     for (size_t i = 0; i < numCameras; ++i) {
       if (cam_iterators[i] == image_names[i].end()) {
         std::cout << std::endl << "Finished. Press any key to exit." << std::endl << std::flush;
-        cv::waitKey();
-        return 0;
+        //cv::waitKey();
+        cleanExit(0);
       }
     }
 
@@ -326,7 +387,7 @@ int main(int argc, char **argv)
         if (!std::getline(imu_file, line)) {
           std::cout << std::endl << "Finished. Press any key to exit." << std::endl << std::flush;
           cv::waitKey();
-          return 0;
+          cleanExit(0);
         }
 
         std::stringstream stream(line);
@@ -358,7 +419,9 @@ int main(int argc, char **argv)
 
       // add the image to the frontend for (blocking) processing
       if (t - start > deltaT) {
-        okvis_estimator.addImage(t, i, filtered);
+        okvis::ROI roi;
+        getROI(t, &roi);
+        okvis_estimator.addImage(t, i, filtered, nullptr, nullptr, true, roi);
       }
 
       cam_iterators[i]++;
@@ -373,7 +436,66 @@ int main(int argc, char **argv)
     }
 
   }
+  return 0;
+}
+
+void cleanExit(int) {
+  for (okvis::PointMap::const_iterator it = landmarks.begin();
+      it != landmarks.end(); it++) {
+    if (it->second.quality > 0.001) {
+      lm_file << it->second.id << "," << it->second.quality << "," <<
+        it->second.distance << "," <<
+        it->second.point.transpose().format(CSVFormat) << std::endl;
+    }
+  }
+  lm_file.close();
+  lf_file.close();
+  ps_file.close();
 
   std::cout << std::endl << std::flush;
-  return 0;
+  exit(0);
+}
+
+void getROI(okvis::Time t, okvis::ROI *roi) {
+  std::string line;
+  std::string field;
+  std::getline(roi_file, line);
+  std::istringstream ss(line);
+  uint64_t nsec, sec;
+  std::getline(ss, field, ',');
+  nsec = std::strtoul(field.c_str(), NULL, 0);
+  sec = nsec/1000000000L;
+  nsec %= 1000000000;
+  okvis::Time read_time(sec, nsec);
+  // find pan-tilt entry with timestamp closest to image time
+  while (read_time < t && !roi_file.eof()) {
+    std::getline(roi_file, line);
+    ss.str("");
+    ss.clear();
+    ss.str(line);
+    std::getline(ss, field, ',');
+    nsec = std::strtoul(field.c_str(), NULL, 0);
+    double sec = 1e-9*nsec;
+    read_time.fromSec(sec);
+  }
+
+  if (roi_file.eof()) {
+    if (roi_end) {
+      std::cerr << "ROI EOF" << std::endl;
+      roi_end = false;
+    }
+    // cleanExit(0);
+    (*roi)[0] = Eigen::Vector2d(0, 0);
+    (*roi)[3] = Eigen::Vector2d(1024, 0);
+    (*roi)[2] = Eigen::Vector2d(1024, 1024);
+    (*roi)[1] = Eigen::Vector2d(0, 1024);
+    return;
+  }
+
+  for (size_t i=0; i < 4; i++) {
+    std::getline(ss, field, ',');
+    (*roi)[i][0] = std::strtol(field.c_str(), NULL, 10);
+    std::getline(ss, field, ',');
+    (*roi)[i][1] = std::strtol(field.c_str(), NULL, 10);
+  }
 }

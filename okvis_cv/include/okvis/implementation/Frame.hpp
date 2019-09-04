@@ -50,7 +50,8 @@ Frame::Frame(const cv::Mat & image,
     : image_(image),
       cameraGeometry_(cameraGeometry),
       detector_(detector),
-      extractor_(extractor)
+      extractor_(extractor),
+      hasROI_(false)
 {
 }
 
@@ -76,6 +77,23 @@ void Frame::setDetector(std::shared_ptr<cv::FeatureDetector> detector)
 void Frame::setExtractor(std::shared_ptr<cv::DescriptorExtractor> extractor)
 {
   extractor_ = extractor;
+}
+
+// set the ROI
+void Frame::setROI(okvis::ROI roi) {
+  hasROI_ = true;
+  roi_ = roi;
+}
+
+// get the ROI
+bool Frame::getROI(okvis::ROI *roi) {
+  (*roi) = roi_;
+  return hasROI_;
+}
+
+// clear the ROI
+void Frame::clearROI() {
+  hasROI_ = false;
 }
 
 // obtain the image
@@ -118,6 +136,20 @@ int Frame::detect()
   OKVIS_ASSERT_TRUE_DBG(Exception, detector_ != NULL,
                         "Detector not initialised!");
   detector_->detect(image_, keypoints_);
+  if (hasROI_) {
+    for (size_t i = keypoints_.size(); i > 0; i--) {
+      bool is_in = true;
+      for (uint32_t j = 0; is_in && (j < 4); j++) {
+        Eigen::Vector2d kp(keypoints_[i-1].pt.y, keypoints_[i-1].pt.x);
+        Eigen::Vector2d v1(roi_[(j+1)%4] - roi_[j]);
+        Eigen::Vector2d v2(kp - roi_[j]);
+        is_in = is_in && (v1[0]*v2[1] - v1[1]*v2[0] < 0);
+      }
+      if (!is_in) {
+        keypoints_.erase(keypoints_.begin() + i-1);
+      }
+    }
+  }
   return keypoints_.size();
 }
 

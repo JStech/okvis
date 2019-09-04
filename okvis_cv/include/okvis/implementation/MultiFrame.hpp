@@ -67,6 +67,7 @@ void MultiFrame::resetCameraSystemAndFrames(
   // copy cameras
   for(size_t c = 0; c<numFrames(); ++c){
     frames_[c].setGeometry(cameraSystem.cameraGeometry(c));
+    frames_[c].clearROI();
   }
 }
 
@@ -138,6 +139,16 @@ void MultiFrame::setExtractor(
 {
   OKVIS_ASSERT_TRUE_DBG(Exception, cameraIdx < frames_.size(), "Out of range");
   frames_[cameraIdx].setExtractor(extractor);
+}
+
+void MultiFrame::setROI(size_t cameraIdx, okvis::ROI roi) {
+  OKVIS_ASSERT_TRUE_DBG(Exception, cameraIdx < frames_.size(), "Out of range");
+  frames_[cameraIdx].setROI(roi);
+}
+
+bool MultiFrame::getROI(size_t cameraIdx, okvis::ROI *roi) {
+  OKVIS_ASSERT_TRUE_DBG(Exception, cameraIdx < frames_.size(), "Out of range");
+  return frames_[cameraIdx].getROI(roi);
 }
 
 // Obtain the image

@@ -123,6 +123,7 @@ class ThreadedKFVio : public VioInterface {
    * \param image        The image.
    * \param keypoints    Optionally aready pass keypoints. This will skip the detection part.
    * \param asKeyframe   Use the new image as keyframe. Not implemented.
+   * \param roi          An ROI to limit the keypoints to.
    * \warning The frame consumer loop does not support using existing keypoints yet.
    * \warning Already specifying whether this frame should be a keyframe is not implemented yet.
    * \return             Returns true normally. False, if the previous one has not been processed yet.
@@ -130,7 +131,10 @@ class ThreadedKFVio : public VioInterface {
   virtual bool addImage(const okvis::Time & stamp, size_t cameraIndex,
                         const cv::Mat & image,
                         const std::vector<cv::KeyPoint> * keypoints = 0,
-                        bool* asKeyframe = 0);
+                        bool* asKeyframe = 0,
+                        bool has_roi = false,
+                        okvis::ROI roi = okvis::ROI());
+
 
   /**
    * \brief             Add an abstracted image observation.

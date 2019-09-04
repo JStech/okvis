@@ -53,6 +53,7 @@
 #include <Eigen/Dense>
 #include <okvis/Time.hpp>
 #include <okvis/kinematics/Transformation.hpp>
+#include <okvis/FrameTypedefs.hpp>
 
 /// \brief okvis Main namespace of this package.
 namespace okvis {
@@ -166,6 +167,8 @@ struct CameraData {
   cv::Mat image;  ///< Image.
   std::vector<cv::KeyPoint> keypoints; ///< Keypoints if available.
   bool deliversKeypoints; ///< Are the keypoints delivered too?
+  bool hasROI; ///< Does the image have an associated ROI?
+  okvis::ROI roi; ///< The ROI.
 };
 /// \brief Keypoint measurement.
 struct KeypointData {
