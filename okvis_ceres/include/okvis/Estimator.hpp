@@ -597,6 +597,9 @@ class Estimator : public VioBackendInterface
   // whether the keyframe window is full
   bool dropKF_ = false;
 
+  // how long since last KF
+  uint32_t kfCount_ = 1;
+
   // keyframe log file
   std::ofstream kfLog_;
 };

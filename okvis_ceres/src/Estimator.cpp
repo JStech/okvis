@@ -38,6 +38,7 @@
  * @author Andreas Forster
  */
 
+#include <cstdlib>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <okvis/Estimator.hpp>
@@ -63,6 +64,8 @@
 DEFINE_string(kf_log, "", "Log file for key frame info");
 DEFINE_bool(info_kf, false, "Use Fisher information to set keyframes");
 DEFINE_bool(dist_kf, false, "Use distance/rotation criteria to set keyframes");
+DEFINE_int32(count_kf, 0, "Just use every <n>th image as a keyframe");
+DEFINE_double(rand_kf, 0., "Select keyframes at random with probability <p>");
 
 /// \brief okvis Main namespace of this package.
 namespace okvis {
@@ -487,9 +490,11 @@ void Estimator::keyframeDecision() {
   std::vector<uint64_t> kfPoseParameterBlockIds;
   std::vector<uint64_t> imuPoseParameterBlockIds;
   uint64_t most_recent_keyframe = 0;
+  uint64_t newest_frame = 0;
   for (auto state : statesMap_) {
     if (isInImuWindow(state.second.id)) {
       imuPoseParameterBlockIds.push_back(state.second.id);
+      newest_frame = state.second.id;
     } else {
       kfPoseParameterBlockIds.push_back(state.second.id);
     }
@@ -517,6 +522,17 @@ void Estimator::keyframeDecision() {
     if ((d_dist > 0.4) || (d_theta > 0.2618)) {
       statesMap_.at(imuPoseParameterBlockIds.back()).isKeyframe = true;
     }
+  } else if (FLAGS_count_kf > 0) {
+    if (kfCount_ >= FLAGS_count_kf) {
+      kfCount_ = 1;
+      statesMap_.at(imuPoseParameterBlockIds.back()).isKeyframe = true;
+    } else {
+      kfCount_++;
+    }
+  } else if (FLAGS_rand_kf > 0.) {
+    if (rand() < FLAGS_rand_kf * RAND_MAX) {
+      statesMap_.at(imuPoseParameterBlockIds.back()).isKeyframe = true;
+    }
   }
 
   if (!dropKF_ && FLAGS_info_kf) {
@@ -536,6 +552,7 @@ void Estimator::keyframeDecision() {
 
   std::vector<uint64_t> oldKfLandmarksToMarginalize;
   std::vector<uint64_t> newKfLandmarksToMarginalize;
+  uint32_t newest_frame_lms = 0;
   for (PointMap::iterator pit = landmarksMap_.begin();
       pit != landmarksMap_.end(); pit++) {
     ceres::Map::ResidualBlockCollection res = mapPtr_->residuals(pit->first);
@@ -551,6 +568,7 @@ void Estimator::keyframeDecision() {
         isInOldKF |= (poseId == oldKfId);
         isInNewKF |= (poseId == newKfId);
         isInOtherKF |= vectorContains(kfPoseParameterBlockIds, poseId);
+        newest_frame_lms += (poseId == newest_frame);
       }
     }
     if (isInOtherKF) {
@@ -597,8 +615,11 @@ void Estimator::keyframeDecision() {
   } else if (kfLog_.is_open()) {
     kfLog_ << statesMap_.rbegin()->second.timestamp << " " <<
       statesMap_.at(newKfId).timestamp << " " <<
-      statesMap_.at(oldKfId).timestamp << " " << newKfScore << " " <<
-      oldKfScore << std::endl;
+      statesMap_.at(oldKfId).timestamp << " " <<
+      newKfScore << " " << oldKfScore << " " <<
+      newKfLandmarksToMarginalize.size() << " " <<
+      oldKfLandmarksToMarginalize.size() << " " <<
+      landmarksMap_.size() << " " << newest_frame_lms << std::endl;
   }
 }
 
@@ -1357,7 +1378,8 @@ void Estimator::logTrackingFailure(const okvis::Time &t, uint32_t numMatches) {
 
 // use Fisher information to set keyframes
 bool Estimator::useFrontendKeyframe() const {
-  return (!FLAGS_info_kf && !FLAGS_dist_kf);
+  return (!FLAGS_info_kf && !FLAGS_dist_kf && (FLAGS_count_kf==0) &&
+      (FLAGS_rand_kf==0.));
 }
 
 // private stuff
